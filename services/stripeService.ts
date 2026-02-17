@@ -38,8 +38,8 @@ export const createCheckoutSession = async (userId: string, packageId: string) =
             // Mapeamento de links de fallback para os pacotes definidos no SettingsView
             const fallbackLinks: Record<string, string> = {
                 'pack_100': 'https://buy.stripe.com/test_bJe7sNcovekq6Kxe8jeQM04',
-                'pack_100_extra': 'https://buy.stripe.com/test_dRm9AVfAHdgm7OB4xJeQM05',
-                'pack_500': 'https://buy.stripe.com/test_55B25qdpw1uB3vj145', 
+                'pack_100_extra': 'https://buy.stripe.com/test_eVq9AV74b906fh39S3eQM08', 
+                'pack_500': 'https://buy.stripe.com/test_cNi14p4W31xEfh35BNeQM07', 
                 'pack_1000': 'https://buy.stripe.com/test_88C36repx2vC4wk286'
             };
 
