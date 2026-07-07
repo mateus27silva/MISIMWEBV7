@@ -109,6 +109,99 @@ async function startServer() {
   // Standard JSON parsing for other routes
   app.use(express.json());
 
+  // API Route: Search and parse mineral characteristics from WebMineral using Gemini Search Grounding
+  app.post("/api/webmineral/search", async (req, res) => {
+    try {
+      const { query } = req.body;
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ error: "Parâmetro 'query' é obrigatório e deve ser uma string." });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "Chave API do Gemini não configurada no servidor." });
+      }
+
+      const { GoogleGenAI, Type } = await import("@google/genai");
+      const ai = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
+
+      const prompt = `
+        Search webmineral.com/data/ (or generally on webmineral.com) for the mineral: "${query}".
+        Find its precise physical and chemical characteristics.
+        Extract the following:
+        1. Name of the mineral (translated to Portuguese if standard, e.g., "Quartzo" for Quartz, "Calcopirita" for Chalcopyrite, "Berilo" for Beryl. Capitalize first letter).
+        2. Chemical Formula (e.g. "CuFeS2" or "SiO2").
+        3. Mineral Class ( Dana/Strunz class, must map strictly to one of: "Mineral", "Element", "Organic", "Inorganic", or "Other").
+        4. Density / Specific Gravity in t/m³ or g/cm³ (e.g. 4.19 or 2.65). If a range is given, use the average.
+        5. Molecular Weight in g/mol (e.g. 183.5).
+        6. Elemental Composition string in the exact format "Element: percentage%, Element: percentage%" (e.g., "Cu: 34.6%, Fe: 30.4%, S: 35.0%" or "Si: 46.7%, O: 53.3%").
+        7. Typical color (e.g. "Brass Yellow", "White", "Light Green").
+        8. The exact URL from webmineral.com/data/ where you found it (e.g. "https://www.webmineral.com/data/Chalcopyrite.shtml").
+        
+        Return the result strictly as a JSON object matching the requested schema.
+      `;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING, description: "Name of the mineral in Portuguese" },
+              formula: { type: Type.STRING, description: "Chemical formula" },
+              class: { 
+                type: Type.STRING, 
+                description: "Class of the component",
+                enum: ["Mineral", "Element", "Organic", "Inorganic", "Other"]
+              },
+              density: { type: Type.NUMBER, description: "Specific gravity / density (g/cm³ or t/m³)" },
+              molecularWeight: { type: Type.NUMBER, description: "Molecular weight (g/mol)" },
+              elementalComposition: { 
+                type: Type.STRING, 
+                description: "Elemental composition as 'Element: pct%, Element: pct%', e.g., 'Cu: 34.6%, Fe: 30.4%, S: 35.0%'" 
+              },
+              color: { type: Type.STRING, description: "Color of the mineral" },
+              sourceUrl: { type: Type.STRING, description: "The exact WebMineral data URL" }
+            },
+            required: ["name", "formula", "class", "density"]
+          }
+        }
+      });
+
+      const textOutput = response.text;
+      if (!textOutput) {
+        throw new Error("O modelo Gemini não retornou nenhum dado.");
+      }
+
+      const parsedData = JSON.parse(textOutput.trim());
+      res.json({ success: true, data: parsedData });
+    } catch (err: any) {
+      console.error("Erro na busca do WebMineral:", err);
+      let errMsg = err.message || "Erro desconhecido ao buscar dados no WebMineral.";
+      try {
+        if (typeof errMsg === "string" && errMsg.trim().startsWith("{")) {
+          const parsedErr = JSON.parse(errMsg);
+          if (parsedErr.error && parsedErr.error.message) {
+            errMsg = parsedErr.error.message;
+          }
+        }
+      } catch (parseErr) {
+        // Ignorar falha no parse do erro original
+      }
+      res.status(500).json({ error: errMsg });
+    }
+  });
+
   // API Route: Create Checkout Session for One-time Donation
   app.post("/api/create-fan-club-session", async (req, res) => {
     try {

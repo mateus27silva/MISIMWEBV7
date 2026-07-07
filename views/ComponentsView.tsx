@@ -167,9 +167,26 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
         body: JSON.stringify({ query: webMineralQuery })
       });
 
+      const contentType = response.headers.get('content-type');
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Erro ao consultar o WebMineral.');
+        let errorMessage = 'Erro ao consultar o WebMineral.';
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+          // Se for erro de API key inválida da API da Gemini, formate de maneira amigável
+          if (errorMessage.includes('API key not valid') || errorMessage.includes('API_KEY_INVALID')) {
+            errorMessage = 'Chave API do Gemini inválida ou não configurada nas Configurações do app. Por favor, revise suas chaves de API/Secrets.';
+          }
+        } else {
+          const textError = await response.text();
+          console.error('Erro retornado pelo servidor:', textError);
+          errorMessage = `Erro no servidor: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('A resposta do servidor não está em formato JSON.');
       }
 
       const resData = await response.json();
