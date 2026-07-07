@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Database, Plus, Search, X, ArrowLeft, Mountain, Atom, Beaker, Leaf, 
-  Trash2, Edit, Check, Save, Loader2, Cloud, Package, AlertCircle, Activity
+  Trash2, Edit, Check, Save, Loader2, Cloud, Package, AlertCircle, Activity,
+  Copy
 } from 'lucide-react';
 import { Component } from '../types';
 import { supabase } from '../services/supabaseClient';
@@ -19,6 +20,8 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
   const [loading, setLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showSqlHelp, setShowSqlHelp] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
 
 
 
@@ -366,6 +369,23 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
         </div>
       </header>
 
+      {/* Banner de Ajuda do Banco de Dados / Colunas Faltantes */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-4 rounded-2xl flex flex-col md:flex-row md:items-center md:justify-between text-xs space-y-3 md:space-y-0 shrink-0">
+        <div className="flex items-start space-x-3">
+          <AlertCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5 animate-pulse" />
+          <div>
+            <p className="font-extrabold text-blue-900 text-sm">Atualização de Colunas do Supabase Necessária?</p>
+            <p className="text-blue-700 mt-0.5">Sua tabela de componentes precisa de colunas adicionais para armazenar os dados completos do WebMineral (fórmula, densidade, classe, work index, etc.).</p>
+          </div>
+        </div>
+        <button 
+          onClick={() => { setShowSqlHelp(true); setCopiedSql(false); }}
+          className="px-4 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all text-xs shrink-0 self-start md:self-auto shadow-sm active:scale-95"
+        >
+          Ver SQL para Supabase
+        </button>
+      </div>
+
       <div className="flex bg-white p-4 rounded-2xl border border-slate-200 shadow-sm items-center space-x-4 shrink-0">
           <div className="relative flex-1 group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
@@ -479,6 +499,88 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
           </div>
       </div>
 
+
+      {/* Modal de Ajuda SQL */}
+      {showSqlHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            <header className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-2">
+                <Database className="w-5 h-5 text-blue-600" />
+                <h3 className="text-lg font-bold text-slate-900">Atualizar Colunas no Supabase</h3>
+              </div>
+              <button 
+                onClick={() => setShowSqlHelp(false)}
+                className="p-1 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </header>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              <p className="text-xs text-slate-500">
+                Para suportar todas as propriedades dos minerais (como as importadas do WebMineral), execute o comando abaixo no <strong className="text-slate-800 font-bold">SQL Editor</strong> do seu painel do Supabase. Ele adicionará com segurança as colunas que estão faltando sem apagar seus dados existentes:
+              </p>
+
+              <div className="relative">
+                <pre className="bg-slate-900 text-slate-100 p-4 rounded-xl font-mono text-[11px] overflow-x-auto leading-relaxed select-all max-h-72">
+{`-- 1. Executar no SQL Editor do Supabase para adicionar colunas faltantes à tabela de componentes:
+ALTER TABLE public.components 
+  ADD COLUMN IF NOT EXISTS formula TEXT,
+  ADD COLUMN IF NOT EXISTS class TEXT DEFAULT 'Mineral',
+  ADD COLUMN IF NOT EXISTS density NUMERIC(10,4) DEFAULT 2.7,
+  ADD COLUMN IF NOT EXISTS molecular_weight NUMERIC(10,4),
+  ADD COLUMN IF NOT EXISTS cas_number TEXT,
+  ADD COLUMN IF NOT EXISTS elemental_composition TEXT,
+  ADD COLUMN IF NOT EXISTS work_index NUMERIC(10,4) DEFAULT 12.0,
+  ADD COLUMN IF NOT EXISTS abrasion_index NUMERIC(10,4) DEFAULT 0.1,
+  ADD COLUMN IF NOT EXISTS is_selected BOOLEAN DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS color TEXT,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());`}
+                </pre>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `ALTER TABLE public.components \n  ADD COLUMN IF NOT EXISTS formula TEXT,\n  ADD COLUMN IF NOT EXISTS class TEXT DEFAULT 'Mineral',\n  ADD COLUMN IF NOT EXISTS density NUMERIC(10,4) DEFAULT 2.7,\n  ADD COLUMN IF NOT EXISTS molecular_weight NUMERIC(10,4),\n  ADD COLUMN IF NOT EXISTS cas_number TEXT,\n  ADD COLUMN IF NOT EXISTS elemental_composition TEXT,\n  ADD COLUMN IF NOT EXISTS work_index NUMERIC(10,4) DEFAULT 12.0,\n  ADD COLUMN IF NOT EXISTS abrasion_index NUMERIC(10,4) DEFAULT 0.1,\n  ADD COLUMN IF NOT EXISTS is_selected BOOLEAN DEFAULT TRUE,\n  ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE,\n  ADD COLUMN IF NOT EXISTS color TEXT,\n  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());`
+                    );
+                    setCopiedSql(true);
+                    setTimeout(() => setCopiedSql(false), 3000);
+                  }}
+                  className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 transition-all text-xs font-bold flex items-center space-x-1"
+                >
+                  {copiedSql ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      <span className="text-emerald-500">Copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copiar SQL</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="bg-amber-50 text-amber-800 border border-amber-200 p-4 rounded-xl text-xs space-y-1">
+                <p className="font-bold">💡 O que fazer depois?</p>
+                <p>Após executar o SQL acima no Supabase, clique no botão <strong className="text-amber-950">"Popular Catálogo Mestre"</strong> para preencher automaticamente sua tabela com as propriedades e fórmulas químicas de dezenas de minerais pré-cadastrados!</p>
+              </div>
+            </div>
+
+            <footer className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center shrink-0">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">Copie, execute no Supabase e clique em popular</span>
+              <button 
+                onClick={() => setShowSqlHelp(false)}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 rounded-xl font-bold text-slate-700 text-xs transition-all"
+              >
+                Fechar
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
     </div>
   );
