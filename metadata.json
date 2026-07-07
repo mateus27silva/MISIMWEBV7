@@ -2,5 +2,7 @@
   "name": "MISIMWEB V7",
   "description": "Estruturando SUPABASE-VERCEL.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
