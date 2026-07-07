@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Database, Plus, Search, X, ArrowLeft, Mountain, Atom, Beaker, Leaf, 
-  Trash2, Edit, Check, Save, Loader2, Cloud, Package, AlertCircle, Activity
+  Trash2, Edit, Check, Save, Loader2, Cloud, Package, AlertCircle, Activity,
+  Globe, ExternalLink
 } from 'lucide-react';
 import { Component } from '../types';
 import { supabase } from '../services/supabaseClient';
@@ -19,6 +20,13 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
   const [loading, setLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // WebMineral search states
+  const [isWebMineralOpen, setIsWebMineralOpen] = useState(false);
+  const [webMineralQuery, setWebMineralQuery] = useState('');
+  const [webMineralResult, setWebMineralResult] = useState<any>(null);
+  const [isSearchingWebMineral, setIsSearchingWebMineral] = useState(false);
+  const [webMineralError, setWebMineralError] = useState<string | null>(null);
 
   const initialFormState: Partial<Component> = {
     name: '',
@@ -46,7 +54,6 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
       const { data, error } = await supabase
         .from('components')
         .select('*')
-        .order('is_default', { ascending: false })
         .order('name', { ascending: true });
 
       if (error) {
@@ -69,6 +76,18 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
           selected: item.is_selected,
           color: item.color || undefined
         }));
+
+        // Ordena para que os componentes padrão (user_id nulo) fiquem no topo, mantendo a ordem alfabética
+        mapped.sort((a, b) => {
+          const aItem = data.find(d => d.id === a.id);
+          const bItem = data.find(d => d.id === b.id);
+          const aDefault = !aItem?.user_id;
+          const bDefault = !bItem?.user_id;
+          if (aDefault && !bDefault) return -1;
+          if (!aDefault && bDefault) return 1;
+          return 0;
+        });
+
         setMinerals(mapped);
       }
     } catch (err: any) {
@@ -108,7 +127,6 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
           abrasion_index: c.abrasionIndex,
           color: c.color,
           is_selected: true,
-          is_default: true,
           user_id: user?.id || null
         }));
 
@@ -133,6 +151,59 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
     setViewMode('list');
     setEditingId(null);
     setForm(initialFormState);
+  };
+
+  const handleSearchWebMineral = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!webMineralQuery.trim()) return;
+    setIsSearchingWebMineral(true);
+    setWebMineralError(null);
+    setWebMineralResult(null);
+
+    try {
+      const response = await fetch('/api/webmineral/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: webMineralQuery })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao consultar o WebMineral.');
+      }
+
+      const resData = await response.json();
+      if (resData.success && resData.data) {
+        setWebMineralResult(resData.data);
+      } else {
+        throw new Error('Formato de dados inválido recebido do servidor.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setWebMineralError(err.message || 'Erro ao buscar no WebMineral.');
+    } finally {
+      setIsSearchingWebMineral(false);
+    }
+  };
+
+  const handleApplyWebMineralData = (data: any) => {
+    setForm({
+      name: data.name || '',
+      formula: data.formula || '',
+      class: (data.class === 'Mineral' || data.class === 'Element' || data.class === 'Organic' || data.class === 'Inorganic' || data.class === 'Other') ? data.class : 'Mineral',
+      density: data.density || 2.7,
+      molecularWeight: data.molecularWeight || 0,
+      casNumber: '',
+      elementalComposition: data.elementalComposition || '',
+      workIndex: 12.0,
+      abrasionIndex: 0.1,
+      selected: true
+    });
+    setEditingId(null);
+    setViewMode('edit');
+    setIsWebMineralOpen(false);
+    setWebMineralResult(null);
+    setWebMineralQuery('');
   };
 
   const handleEdit = (comp: Component) => {
@@ -343,6 +414,13 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
             Popular Catálogo Mestre
           </button>
           <button 
+            onClick={() => setIsWebMineralOpen(true)}
+            className="px-4 py-3 bg-amber-50 border border-amber-200 text-amber-800 font-bold rounded-xl hover:bg-amber-100 transition-all flex items-center shadow-sm active:scale-95"
+          >
+            <Globe className="w-4 h-4 mr-2 text-amber-600" />
+            Importar do WebMineral (IA)
+          </button>
+          <button 
             onClick={() => { setEditingId(null); setForm(initialFormState); setViewMode('edit'); }}
             className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center shadow-lg shadow-blue-100 active:scale-95"
           >
@@ -463,6 +541,133 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
               </div>
           </div>
       </div>
+
+      {/* Modal WebMineral IA Search */}
+      {isWebMineralOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            <header className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-2">
+                <Globe className="w-5 h-5 text-amber-600" />
+                <h3 className="text-lg font-bold text-slate-900">Importar do WebMineral (IA)</h3>
+              </div>
+              <button 
+                onClick={() => { setIsWebMineralOpen(false); setWebMineralResult(null); setWebMineralError(null); setWebMineralQuery(''); }}
+                className="p-1 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </header>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              <p className="text-xs text-slate-500">
+                Digite o nome de qualquer mineral (em inglês ou português). Nosso co-piloto de IA consultará a base oficial do <a href="https://www.webmineral.com/data/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center font-bold">webmineral.com <ExternalLink className="w-3 h-3 ml-0.5" /></a> e extrairá automaticamente sua fórmula, densidade, classe e composição química.
+              </p>
+
+              <form onSubmit={handleSearchWebMineral} className="flex gap-2">
+                <input 
+                  type="text"
+                  required
+                  placeholder="Ex: Chalcopyrite, Quartz, Berilo, Bauxita..."
+                  value={webMineralQuery}
+                  onChange={e => setWebMineralQuery(e.target.value)}
+                  className="flex-1 px-4 py-2 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all text-sm"
+                />
+                <button 
+                  type="submit"
+                  disabled={isSearchingWebMineral}
+                  className="px-4 py-2 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 disabled:opacity-50 transition-all flex items-center shrink-0 text-sm"
+                >
+                  {isSearchingWebMineral ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Consultar'}
+                </button>
+              </form>
+
+              {isSearchingWebMineral && (
+                <div className="bg-slate-50 border border-slate-100 rounded-xl p-8 flex flex-col items-center justify-center space-y-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-amber-600" />
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider animate-pulse">Buscando na base WebMineral...</p>
+                </div>
+              )}
+
+              {webMineralError && (
+                <div className="bg-red-50 text-red-600 border border-red-100 p-4 rounded-xl flex items-start text-xs space-x-2">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">Falha na consulta</p>
+                    <p>{webMineralError}</p>
+                  </div>
+                </div>
+              )}
+
+              {webMineralResult && (
+                <div className="border border-slate-200 rounded-xl p-4 space-y-4 bg-slate-50 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-base">{webMineralResult.name}</h4>
+                      <p className="text-xs font-mono text-slate-500">{webMineralResult.formula}</p>
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                      {webMineralResult.class}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-white p-2 rounded-lg border border-slate-100">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Densidade / S.G.</p>
+                      <p className="font-bold text-slate-700 mt-0.5">{webMineralResult.density ? webMineralResult.density.toFixed(2) : '-'} t/m³</p>
+                    </div>
+                    <div className="bg-white p-2 rounded-lg border border-slate-100">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Massa Molecular</p>
+                      <p className="font-bold text-slate-700 mt-0.5">{webMineralResult.molecularWeight ? webMineralResult.molecularWeight.toFixed(2) : '-'} g/mol</p>
+                    </div>
+                    {webMineralResult.color && (
+                      <div className="bg-white p-2 rounded-lg border border-slate-100 col-span-2">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Cor Característica</p>
+                        <p className="font-bold text-slate-700 mt-0.5">{webMineralResult.color}</p>
+                      </div>
+                    )}
+                    {webMineralResult.elementalComposition && (
+                      <div className="bg-white p-2 rounded-lg border border-slate-100 col-span-2">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Composição Química</p>
+                        <p className="font-mono font-bold text-blue-600 mt-0.5 text-[11px]">{webMineralResult.elementalComposition}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {webMineralResult.sourceUrl && (
+                    <div className="text-right">
+                      <a 
+                        href={webMineralResult.sourceUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center text-[10px] font-bold text-amber-700 hover:underline"
+                      >
+                        Ver Ficha no WebMineral <ExternalLink className="w-3 h-3 ml-1" />
+                      </a>
+                    </div>
+                  )}
+
+                  <button 
+                    onClick={() => handleApplyWebMineralData(webMineralResult)}
+                    className="w-full py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center shadow-md active:scale-95 text-sm"
+                  >
+                    Preencher Formulário de Cadastro
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <footer className="px-6 py-4 bg-slate-50 border-t border-slate-200 text-right shrink-0">
+              <button 
+                onClick={() => { setIsWebMineralOpen(false); setWebMineralResult(null); setWebMineralError(null); setWebMineralQuery(''); }}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 rounded-xl font-bold text-slate-700 text-xs transition-all"
+              >
+                Fechar
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
