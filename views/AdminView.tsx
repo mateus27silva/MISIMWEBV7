@@ -63,10 +63,144 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'insights' | 'users' | 'plans'>('insights');
+  const [activeTab, setActiveTab] = useState<'insights' | 'users' | 'plans' | 'database'>('insights');
   
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const SQL_DATABASE_SETUP = `-- ====================================================================
+-- 0. PREVENÇÃO DE CONFLITOS DE POLÍTICAS EXISTENTES
+-- ====================================================================
+-- Se você receber erros de políticas existentes (ex: ERROR: 42710),
+-- este bloco garante que as antigas sejam removidas antes de criadas.
+DROP POLICY IF EXISTS "Allow all actions for own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Allow all actions for own profile" ON profiles;
+
+-- ====================================================================
+-- 1. EXTENSÕES INICIAIS E FUNÇÕES AUXILIARES
+-- ====================================================================
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Helper para checar admin sem recursão
+CREATE OR REPLACE FUNCTION is_admin() 
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND is_admin = true
+  );
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- ====================================================================
+-- 2. TABELA DE COMPONENTES (MINERAIS DO PROCESSO)
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS public.components (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE, -- NULL para minerais padrão do sistema
+  name TEXT NOT NULL,
+  formula TEXT,
+  class TEXT DEFAULT 'Mineral',
+  density NUMERIC(10,4) DEFAULT 2.7,
+  molecular_weight NUMERIC(10,4),
+  cas_number TEXT,
+  elemental_composition TEXT,
+  work_index NUMERIC(10,4) DEFAULT 12.0,
+  abrasion_index NUMERIC(10,4) DEFAULT 0.1,
+  is_selected BOOLEAN DEFAULT TRUE,
+  is_default BOOLEAN DEFAULT FALSE,
+  color TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Habilitar Segurança em Nível de Linha (RLS)
+ALTER TABLE public.components ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de Segurança (RLS) para Componentes
+DROP POLICY IF EXISTS "Qualquer um vê componentes padrão" ON public.components;
+DROP POLICY IF EXISTS "Usuários gerenciam seus próprios componentes" ON public.components;
+DROP POLICY IF EXISTS "Leitura de componentes públicos e pessoais" ON public.components;
+DROP POLICY IF EXISTS "Inserção de componentes próprios" ON public.components;
+DROP POLICY IF EXISTS "Edição de componentes próprios" ON public.components;
+DROP POLICY IF EXISTS "Exclusão de componentes próprios" ON public.components;
+DROP POLICY IF EXISTS "Admins possuem controle total de componentes" ON public.components;
+
+CREATE POLICY "Leitura de componentes públicos e pessoais" ON public.components
+FOR SELECT USING (user_id IS NULL OR auth.uid() = user_id);
+
+CREATE POLICY "Inserção de componentes próprios" ON public.components
+FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Edição de componentes próprios" ON public.components
+FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Exclusão de componentes próprios" ON public.components
+FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "Admins possuem controle total de componentes" ON public.components
+FOR ALL USING (is_admin());
+
+-- ====================================================================
+-- 3. TABELA DE EQUAÇÕES E MODELOS CUSTOMIZADOS (CINÉTICA / FLOTAÇÃO)
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS public.equipment_equations (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  equipment_type TEXT NOT NULL, -- ex: 'KineticModel', 'FlotationCell'
+  formula TEXT NOT NULL,
+  parameters JSONB NOT NULL DEFAULT '{}'::JSONB,
+  is_system_default BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Habilitar Segurança em Nível de Linha (RLS)
+ALTER TABLE public.equipment_equations ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de Segurança (RLS) para Equações e Cinética
+DROP POLICY IF EXISTS "Leitura de equações pessoais e padrões" ON public.equipment_equations;
+DROP POLICY IF EXISTS "Inserção de equações próprias" ON public.equipment_equations;
+DROP POLICY IF EXISTS "Edição de equações próprias" ON public.equipment_equations;
+DROP POLICY IF EXISTS "Exclusão de equações próprias" ON public.equipment_equations;
+DROP POLICY IF EXISTS "Admins possuem controle total de equações" ON public.equipment_equations;
+
+CREATE POLICY "Leitura de equações pessoais e padrões" ON public.equipment_equations
+FOR SELECT USING (user_id = auth.uid() OR is_system_default = TRUE);
+
+CREATE POLICY "Inserção de equações próprias" ON public.equipment_equations
+FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Edição de equações próprias" ON public.equipment_equations
+FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Exclusão de equações próprias" ON public.equipment_equations
+FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "Admins possuem controle total de equações" ON public.equipment_equations
+FOR ALL USING (is_admin());
+
+-- ====================================================================
+-- 4. TABELA OPCIONAL DE PRESETS DE UNIDADES
+-- ====================================================================
+-- No MISIMWEB, as unidades são salvas por padrão acopladas ao Flowshet
+-- dentro de "projects.flowsheet_data". Caso queira estender para persistir
+-- presets globais por usuário, você pode criar esta tabela:
+CREATE TABLE IF NOT EXISTS public.user_unit_presets (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  presets JSONB NOT NULL DEFAULT '{}'::JSONB,
+  is_active BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE(user_id, name)
+);
+
+ALTER TABLE public.user_unit_presets ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Usuários gerenciam seus próprios presets de unidades" ON public.user_unit_presets;
+CREATE POLICY "Usuários gerenciam seus próprios presets de unidades" ON public.user_unit_presets
+FOR ALL USING (auth.uid() = user_id);`;
 
   const SQL_FIX = `-- CORREÇÃO DE RECURSÃO INFINITA (RLS)
 -- Execute este comando no SQL Editor do Supabase:
@@ -286,11 +420,12 @@ FOR UPDATE USING (is_admin());`;
         </div>
       </header>
 
-      <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-slate-200 w-fit">
+      <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-slate-200 w-fit overflow-x-auto max-w-full">
         {[
             { id: 'insights', label: 'Insights', icon: BarChart3 },
             { id: 'users', label: 'User Directory', icon: Users },
-            { id: 'plans', label: 'Permission Matrix', icon: LayoutTemplate }
+            { id: 'plans', label: 'Permission Matrix', icon: LayoutTemplate },
+            { id: 'database', label: 'Database Setup', icon: Database }
         ].map(tab => (
             <button 
                 key={tab.id}
@@ -481,6 +616,80 @@ FOR UPDATE USING (is_admin());`;
                           ))}
                       </tbody>
                   </table>
+              </div>
+          </div>
+      )}
+
+      {activeTab === 'database' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                  <div className="flex items-center space-x-3 mb-2">
+                      <div className="p-2 bg-slate-900 text-white rounded-lg"><Database className="w-5 h-5" /></div>
+                      <div>
+                          <h2 className="text-lg font-bold text-slate-800">Supabase Database Integration</h2>
+                          <p className="text-xs text-slate-500">Estrutura de tabelas e políticas de segurança para Componentes, Cinética e Unidades.</p>
+                      </div>
+                  </div>
+                  <p className="text-sm text-slate-600 mt-4 leading-relaxed">
+                      Para que as seções de <strong>Componentes</strong>, <strong>Cinética</strong> e o fluxo de <strong>Unidades de Medida</strong> funcionem perfeitamente com persistência no Supabase, execute o script SQL abaixo no <strong>SQL Editor</strong> do seu painel do Supabase. Este script configura as tabelas necessárias, relaciona-as aos perfis de usuários e define as regras de segurança em nível de linha (RLS).
+                  </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2 space-y-6">
+                      <div className="bg-slate-900 text-slate-100 rounded-2xl shadow-xl overflow-hidden border border-slate-800 flex flex-col">
+                          <div className="p-4 bg-slate-950 flex items-center justify-between border-b border-slate-800">
+                              <div className="flex items-center space-x-2 text-emerald-400">
+                                  <Terminal className="w-4 h-4" />
+                                  <span className="text-xs font-mono font-bold tracking-widest uppercase">Script SQL Completo</span>
+                              </div>
+                              <button 
+                                  onClick={() => {
+                                      navigator.clipboard.writeText(SQL_DATABASE_SETUP);
+                                      alert("Código SQL copiado para a área de transferência!");
+                                  }}
+                                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-lg transition-all flex items-center space-x-1.5"
+                              >
+                                  <Clipboard className="w-3.5 h-3.5" />
+                                  <span>Copiar SQL</span>
+                              </button>
+                          </div>
+                          <div className="p-6 font-mono text-[11px] overflow-y-auto max-h-[500px] leading-relaxed text-emerald-300/90 bg-slate-950/40 select-all whitespace-pre">
+                              {SQL_DATABASE_SETUP}
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="space-y-6">
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Como Aplicar</h3>
+                          <ol className="text-xs text-slate-600 space-y-3 list-decimal list-inside leading-relaxed">
+                              <li>Acesse o console do <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">Supabase</a> e selecione seu projeto.</li>
+                              <li>No menu lateral esquerdo, clique em <strong>SQL Editor</strong>.</li>
+                              <li>Clique em <strong>New Query</strong> (Nova Consulta).</li>
+                              <li>Cole o script completo copiado ao lado no editor.</li>
+                              <li>Clique em <strong>Run</strong> (Executar) no canto inferior direito.</li>
+                              <li>Verifique se as tabelas <code className="bg-slate-100 px-1 py-0.5 rounded text-red-600 font-mono">components</code> e <code className="bg-slate-100 px-1 py-0.5 rounded text-red-600 font-mono">equipment_equations</code> foram criadas com sucesso!</li>
+                          </ol>
+                      </div>
+
+                      <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 shadow-sm space-y-3">
+                          <h3 className="font-bold text-blue-800 text-sm flex items-center">
+                              <Zap className="w-4 h-4 mr-1.5 text-blue-600" /> Detalhes de Integração
+                          </h3>
+                          <div className="text-xs text-blue-700/90 space-y-3 leading-relaxed">
+                              <p>
+                                  <strong>Componentes (Minerais):</strong> Gerencia o banco mineralógico do usuário e do sistema. Registros com <code className="bg-blue-100/50 px-1 py-0.5 rounded font-mono text-blue-900">user_id = null</code> são considerados minerais globais padrão.
+                              </p>
+                              <p>
+                                  <strong>Cinética (Equações):</strong> Armazena modelos e equações matemáticas inseridos pelo usuário para simulações dinâmicas de equipamentos, garantindo isolamento total por RLS.
+                              </p>
+                              <p>
+                                  <strong>Unidades de Medida:</strong> No front-end atual do MISIMWEB, as unidades de medida são salvas de forma flexível acopladas diretamente à simulação corrente no JSONB de <code className="bg-blue-100/50 px-1 py-0.5 rounded font-mono text-blue-900">projects.flowsheet_data</code>. O script também inclui uma tabela opcional caso queira implementar presets globais no futuro.
+                              </p>
+                          </div>
+                      </div>
+                  </div>
               </div>
           </div>
       )}
