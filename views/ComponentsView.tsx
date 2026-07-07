@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Component } from '../types';
 import { supabase } from '../services/supabaseClient';
+import { COMPONENT_DB } from '../services/miningMath';
 
 interface ComponentsViewProps {
   minerals: Component[];
@@ -79,6 +80,52 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
       setErrorMessage(msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSeedDatabase = async () => {
+    if (!window.confirm("Deseja popular a tabela do Supabase com o catálogo mestre de minerais? Isso adicionará novos minerais se eles não existirem.")) return;
+    setIsSyncing(true);
+    setErrorMessage(null);
+    
+    try {
+      const { data: existing } = await supabase.from('components').select('name');
+      const existingNames = new Set(existing?.map(e => e.name.toLowerCase()) || []);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const toInsert = COMPONENT_DB
+        .filter(c => !existingNames.has(c.name.toLowerCase()))
+        .map(c => ({
+          name: c.name,
+          formula: c.formula,
+          class: c.class,
+          density: c.density,
+          molecular_weight: c.molecularWeight,
+          cas_number: c.casNumber,
+          elemental_composition: c.elementalComposition,
+          work_index: c.workIndex,
+          abrasion_index: c.abrasionIndex,
+          color: c.color,
+          is_selected: true,
+          is_default: true,
+          user_id: user?.id || null
+        }));
+
+      if (toInsert.length === 0) {
+        alert("Todos os minerais do catálogo mestre já estão no banco de dados.");
+        return;
+      }
+
+      const { error } = await supabase.from('components').insert(toInsert);
+      if (error) throw error;
+
+      alert(`${toInsert.length} minerais adicionados com sucesso.`);
+      await fetchComponents();
+    } catch (err: any) {
+      setErrorMessage(`Erro ao popular banco: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -286,12 +333,22 @@ export const ComponentsView: React.FC<ComponentsViewProps> = ({ minerals, setMin
           </h1>
           <p className="text-slate-500 mt-1">Gerencie minerais, elementos e reagentes para simulações de flotação e moagem.</p>
         </div>
-        <button 
-          onClick={() => { setEditingId(null); setForm(initialFormState); setViewMode('edit'); }}
-          className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center shadow-lg shadow-blue-100 active:scale-95"
-        >
-          <Plus className="w-5 h-5 mr-2" /> Novo Componente
-        </button>
+        <div className="flex items-center space-x-3">
+          <button 
+            onClick={handleSeedDatabase}
+            disabled={isSyncing}
+            className="px-4 py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all flex items-center shadow-sm active:scale-95 disabled:opacity-50"
+          >
+            {isSyncing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Cloud className="w-4 h-4 mr-2 text-blue-500" />}
+            Popular Catálogo Mestre
+          </button>
+          <button 
+            onClick={() => { setEditingId(null); setForm(initialFormState); setViewMode('edit'); }}
+            className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center shadow-lg shadow-blue-100 active:scale-95"
+          >
+            <Plus className="w-5 h-5 mr-2" /> Novo Componente
+          </button>
+        </div>
       </header>
 
       <div className="flex bg-white p-4 rounded-2xl border border-slate-200 shadow-sm items-center space-x-4 shrink-0">

@@ -17,6 +17,7 @@ interface AdminViewProps {
   currentUser: { email: string, id: string, isAdmin: boolean } | null;
   onUpdateCurrentCredits: (amount: number) => void;
   onUpdateUserPlan: (plan: PlanType) => void;
+  onUpdateUserAdmin?: (isAdmin: boolean) => void;
   permissions: PlanPermissions;
   onUpdatePermissions: (perms: PlanPermissions) => void;
 }
@@ -35,10 +36,26 @@ interface Profile {
     project_count?: number;
 }
 
+const CONTROLLED_FEATURES = [
+  { type: EquipmentType.FLOWSHEET, label: 'Desenho do Fluxograma (Flowsheet)' },
+  { type: EquipmentType.RESULTS_SUMMARY, label: 'Resumo Operacional dos Resultados' },
+  { type: EquipmentType.RESULTS_STREAMS, label: 'Detalhamento Completo das Correntes' },
+  { type: EquipmentType.RESULTS_PERFORMANCE, label: 'Performance por Equipamento' },
+  { type: EquipmentType.RESULTS_CONSOLE, label: 'Console & Logs de Execução' },
+  { type: EquipmentType.ECONOMICS, label: 'Análise de Viabilidade Econômica' },
+  { type: EquipmentType.UNITS, label: 'Configuração Personalizada de Unidades' },
+  { type: EquipmentType.COMPONENTS, label: 'Banco de Dados de Componentes' },
+  { type: EquipmentType.KINETICS, label: 'Modelagem Cinética Customizada' },
+  { type: EquipmentType.CHARTS, label: 'Gráficos de Comportamento Dinâmico' },
+  { type: EquipmentType.OPTIMIZATION, label: 'Algoritmo de Otimização Operacional' },
+  { type: EquipmentType.REPORTS, label: 'Geração Completa de Relatórios' },
+];
+
 export const AdminView: React.FC<AdminViewProps> = ({ 
     currentUser, 
     onUpdateCurrentCredits, 
     onUpdateUserPlan,
+    onUpdateUserAdmin,
     permissions,
     onUpdatePermissions
 }) => {
@@ -55,6 +72,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 -- Execute este comando no SQL Editor do Supabase:
 
 DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
+DROP POLICY IF EXISTS "Admins can update all profiles" ON profiles;
 
 CREATE OR REPLACE FUNCTION is_admin() 
 RETURNS boolean AS $$
@@ -62,7 +80,10 @@ RETURNS boolean AS $$
 $$ LANGUAGE sql SECURITY DEFINER;
 
 CREATE POLICY "Admins can view all profiles" ON profiles
-FOR SELECT USING (is_admin());`;
+FOR SELECT USING (is_admin());
+
+CREATE POLICY "Admins can update all profiles" ON profiles
+FOR UPDATE USING (is_admin());`;
 
   const parseError = (err: any): string => {
     if (typeof err === 'string') return err;
@@ -140,6 +161,9 @@ FOR SELECT USING (is_admin());`;
           if (editingUser.id === currentUser?.id) {
               onUpdateCurrentCredits(editingUser.credits);
               onUpdateUserPlan(editingUser.plan);
+              if (onUpdateUserAdmin) {
+                  onUpdateUserAdmin(editingUser.is_admin);
+              }
           }
 
           setUsers(prev => prev.map(u => u.id === editingUser.id ? editingUser : u));
@@ -434,17 +458,18 @@ FOR SELECT USING (is_admin());`;
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                          {Object.values(EquipmentType)
-                            .filter(type => !type.toString().startsWith('SET_'))
-                            .map(type => (
-                              <tr key={type} className="hover:bg-slate-50/30 transition-colors">
-                                  <td className="px-6 py-4 text-sm font-medium text-slate-700">{type}</td>
+                          {CONTROLLED_FEATURES.map(feature => (
+                              <tr key={feature.type} className="hover:bg-slate-50/30 transition-colors">
+                                  <td className="px-6 py-4 text-sm font-medium text-slate-700">
+                                      <div className="font-semibold text-slate-800">{feature.label}</div>
+                                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">{feature.type}</div>
+                                  </td>
                                   {(['Starter', 'Pro', 'Enterprise'] as PlanType[]).map(plan => {
-                                      const isAllowed = permissions[plan]?.includes(type);
+                                      const isAllowed = permissions[plan]?.includes(feature.type);
                                       return (
                                           <td key={plan} className="px-6 py-4 text-center">
                                               <button 
-                                                onClick={() => togglePermission(plan, type)}
+                                                onClick={() => togglePermission(plan, feature.type)}
                                                 className={`p-2 rounded-lg transition-colors ${isAllowed ? 'text-blue-600 bg-blue-50' : 'text-slate-300 hover:bg-slate-50'}`}
                                               >
                                                   {isAllowed ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}

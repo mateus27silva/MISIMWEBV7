@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Settings2, Hammer, Boxes, Layers, Shuffle, Trash2, MousePointer2, 
   Save as SaveIcon, ChevronDown, ChevronUp, Database, Plus, ArrowLeft,
@@ -393,6 +394,7 @@ export const ProjectView: React.FC<ProjectViewProps> = ({
   const [activeEquipmentGroup, setActiveEquipmentGroup] = useState(() => EQUIPMENT_GROUPS[0].id);
 
   const [simState, setSimState] = useState<'idle' | 'running' | 'paused' | 'success'>('idle');
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [activeTool, setActiveTool] = useState<'pointer' | 'stream'>('pointer');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   
@@ -480,7 +482,14 @@ export const ProjectView: React.FC<ProjectViewProps> = ({
   const hasCharts = ['Pro', 'Enterprise'].includes(userPlan);
   const hasEconomics = ['Enterprise'].includes(userPlan);
 
-  useEffect(() => { setSelectedIds([]); setDrawingLine(null); setSimState(simulationResult?.converged ? 'success' : 'idle'); }, [simulationResult, nodes]);
+  useEffect(() => { 
+    setSelectedIds([]); 
+    setDrawingLine(null); 
+    // Only update simState based on simulationResult if we are NOT currently running a simulation
+    if (simState !== 'running') {
+        setSimState(simulationResult?.converged ? 'success' : 'idle'); 
+    }
+  }, [simulationResult, nodes]);
 
   const addLog = (message: string, type: LogType = 'info') => {
     const newLog: LogEntry = { id: Date.now() + Math.random(), timestamp: new Date().toLocaleTimeString('pt-BR', { hour12: false }), type, message };
@@ -880,7 +889,64 @@ export const ProjectView: React.FC<ProjectViewProps> = ({
   const handleLoadExample = () => { if (onSnapshot) onSnapshot(); setSelectedIds([]); setMinerals(prev => prev.map(m => (['1', '6'].includes(m.id)) ? { ...m, selected: true } : m)); const newNodes: NodeData[] = [ { id: 'cyc_simple', type: 'Hydrocyclone', x: 400, y: 300, label: 'Ciclone de Classificação', parameters: { pressure: 100, d50c: 150, waterRecoveryToUnderflow: 40, diameter: 26.0, height: 107.8, inletDiameter: 8.74, vortexFinderDiameter: 6.50, apexDiameter: 5.00, overflowSolids: 30, underflowSolids: 75, millDischargeSolids: 70, oreDensity: 2.7 } } ]; const newConns: Connection[] = [ { id: 's_feed_simple', fromNode: undefined, fromX: 150, fromY: 348, toNode: 'cyc_simple', toPort: 'feed', label: 'Alimentação do Ciclone', parameters: { solidsTph: 200, percentSolids: 55, sg: 2.7, mineral_1: 90, mineral_6: 10 } }, { id: 's_of_simple', fromNode: 'cyc_simple', fromPort: 'overflow', toNode: undefined, toX: 437.5, toY: 100, label: 'Overflow (Finos)', parameters: {} }, { id: 's_uf_simple', fromNode: 'cyc_simple', fromPort: 'underflow', toNode: undefined, toX: 437.5, toY: 550, label: 'Underflow (Grossos)', parameters: {} } ]; setNodes(newNodes); setConnections(newConns); addLog('Exemplo Simples de Classificação carregado.', 'success'); };
   const handleClearFlowsheetRequest = () => setShowClearConfirm(true);
   const handleConfirmClear = () => { if (onSnapshot) onSnapshot(); setNodes([]); setConnections([]); setSelectedIds([]); addLog('Fluxograma limpo.', 'warning'); setSimState('idle'); setShowClearConfirm(false); };
-  const handleRunSimulation = () => { if (!user || user.credits <= 0) { addLog("Créditos insuficientes.", 'error'); return; } setSimState('running'); setTimeout(() => { try { const result = solveFlowsheet(nodes, connections, minerals, customModels); const updatedConnections = connections.map(c => ({ ...c, streamState: result.streams[c.id] })); setConnections(updatedConnections); onSimulationComplete(result); setSimState(result.converged ? 'success' : 'idle'); addLog(`Simulação concluída. Erro: ${result.error.toFixed(4)}%`, result.converged ? 'success' : 'warning'); if (user) { onUpdateCredits(user.credits - 10); } if (executionFlags.optimization && hasOptimization && onTriggerOptimization) { onTriggerOptimization(); } } catch (error) { setSimState('idle'); addLog('Erro na simulação.', 'error'); } }, 500); };
+  const handleRunSimulation = () => { 
+    console.log("Run Simulation triggered. Credits:", user?.credits, "isAdmin:", user?.isAdmin);
+    // Relaxed check: allows admin and guests to run, and users with credits
+    if (user && user.credits <= 0 && !user.isAdmin) { 
+        console.warn("Insufficient credits for user:", user.email);
+        addLog("Créditos insuficientes. Por favor, recarregue para processar.", 'error'); 
+        return; 
+    } 
+    
+    setSimState('running'); 
+    setLoadingProgress(0);
+    addLog('Iniciando simulação...', 'info');
+    
+    // Cache current state values at start to prevent closure desync
+    const curNodes = [...nodes];
+    const curConns = [...connections];
+    const curMinerals = minerals || [];
+    
+    const duration = 2000; // 2 seconds total loading animation
+    const intervalTime = 30;
+    const steps = duration / intervalTime;
+    let currentStep = 0;
+    
+    const interval = setInterval(() => {
+      currentStep++;
+      const progress = Math.min(100, Math.round((currentStep / steps) * 100));
+      setLoadingProgress(progress);
+      
+      if (progress >= 100) {
+        clearInterval(interval);
+        
+        try { 
+            console.log("Executing flowsheet solver...");
+            const result = solveFlowsheet(curNodes, curConns, curMinerals, customModels); 
+            console.log("Solver result received. Converged:", result.converged);
+            
+            const updatedConnections = connections.map(c => ({ ...c, streamState: result.streams[c.id] })); 
+            setConnections(updatedConnections); 
+            
+            onSimulationComplete(result); 
+            setSimState(result.converged ? 'success' : 'idle'); 
+            addLog(`Simulação concluída. Erro: ${result.error.toFixed(4)}%`, result.converged ? 'success' : 'warning'); 
+            
+            if (result.converged) {
+                onOpenTab('results_summary');
+            }            
+            // Deduction is handled in onSimulationComplete via App.tsx
+            if (executionFlags.optimization && hasOptimization && onTriggerOptimization) { 
+                onTriggerOptimization(); 
+            } 
+        } catch (error: any) { 
+            console.error("Simulation Execution Error:", error);
+            setSimState('idle'); 
+            addLog(`Erro na execução da simulação: ${error.message || 'Erro desconhecido'}`, 'error'); 
+        } 
+      }
+    }, intervalTime);
+  };
   const handleDownloadProject = () => { const data = { version: '1.0', timestamp: new Date().toISOString(), nodes, connections, minerals, customModels, logs, simulationResult }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `misim_project.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); };
   const handleUploadClick = () => { fileInputRef.current?.click(); };
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (evt) => { try { const data = JSON.parse(evt.target?.result as string); if (data.nodes) setNodes(data.nodes); if (data.connections) setConnections(data.connections); if (data.minerals) setMinerals(data.minerals); if (data.customModels) setCustomModels(data.customModels); if (data.logs) setLogs(data.logs); if (data.simulationResult) { onSimulationComplete(data.simulationResult); if (data.simulationResult.converged) setSimState('success'); } addLog('Projeto carregado.', 'success'); } catch { addLog('Erro ao ler arquivo.', 'error'); } }; reader.readAsText(file); e.target.value = ''; };
@@ -1308,6 +1374,7 @@ export const ProjectView: React.FC<ProjectViewProps> = ({
               <ResultsView 
                   results={simulationResult} 
                   connections={connections} 
+                  nodes={nodes}
                   projectName={projectName}
                   units={units}
                   onNavigate={onNavigate}
@@ -1320,6 +1387,7 @@ export const ProjectView: React.FC<ProjectViewProps> = ({
               <ResultsView 
                   results={simulationResult} 
                   connections={connections} 
+                  nodes={nodes}
                   projectName={projectName}
                   units={units}
                   onNavigate={onNavigate}
@@ -1392,6 +1460,7 @@ export const ProjectView: React.FC<ProjectViewProps> = ({
                   <ResultsView 
                     results={simulationResult} 
                     connections={connections} 
+                    nodes={nodes}
                     projectName={projectName}
                     units={units}
                     onNavigate={onNavigate}
@@ -1505,6 +1574,104 @@ export const ProjectView: React.FC<ProjectViewProps> = ({
               </div>
           )}
       </div>
+      
+      <AnimatePresence>
+        {simState === 'running' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 180 }}
+              className="bg-white rounded-3xl p-10 max-w-md w-full shadow-2xl border border-slate-100 flex flex-col items-center space-y-8"
+            >
+              {/* Spinner & Pulsing Rings */}
+              <div className="relative w-28 h-28 flex items-center justify-center">
+                <motion.div
+                  className="absolute inset-0 rounded-full border-4 border-orange-500/10"
+                  animate={{ scale: [1, 1.15, 1], opacity: [0.3, 0.1, 0.3] }}
+                  transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                />
+                <motion.div
+                  className="absolute -inset-2 rounded-full border border-orange-500/20"
+                  animate={{ scale: [1, 1.25, 1], opacity: [0.1, 0.05, 0.1] }}
+                  transition={{ repeat: Infinity, duration: 2, delay: 0.5, ease: "easeInOut" }}
+                />
+                <motion.div
+                  className="absolute inset-1 rounded-full border-t-4 border-r-4 border-orange-500 border-b-4 border-l-4 border-b-transparent border-l-transparent"
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+                />
+                <div className="bg-orange-50 w-20 h-20 rounded-full flex items-center justify-center text-orange-600 shadow-inner">
+                  <motion.div
+                    animate={{ rotate: -360 }}
+                    transition={{ repeat: Infinity, duration: 8, ease: "linear" }}
+                  >
+                    <RefreshCcw className="w-10 h-10" />
+                  </motion.div>
+                </div>
+              </div>
+
+              {/* Text Information */}
+              <div className="space-y-3 w-full text-center">
+                <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+                  Carregando Simulação
+                </h3>
+                
+                {/* Dynamically switching text messages with high visual quality */}
+                <div className="h-6 overflow-hidden flex items-center justify-center">
+                  <motion.p
+                    key={loadingProgress}
+                    initial={{ y: 15, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -15, opacity: 0 }}
+                    className="text-slate-500 text-sm font-medium"
+                  >
+                    {loadingProgress < 10 && "Carregando dados da simulação..."}
+                    {loadingProgress >= 10 && loadingProgress < 20 && "Buscando informações da base de dados..."}
+                    {loadingProgress >= 20 && loadingProgress < 30 && "Consultando estrutura do fluxograma..."}
+                    {loadingProgress >= 30 && loadingProgress < 40 && "Analisando variáveis operacionais e limites..."}
+                    {loadingProgress >= 40 && loadingProgress < 50 && "Modelando britagem e cominuição primária..."}
+                    {loadingProgress >= 50 && loadingProgress < 60 && "Processando moagem e quebra granulométrica..."}
+                    {loadingProgress >= 60 && loadingProgress < 70 && "Balançando fluxos hídricos e polpa (balanço hídrico)..."}
+                    {loadingProgress >= 70 && loadingProgress < 80 && "Modelando eficiência de hidrociclones..."}
+                    {loadingProgress >= 80 && loadingProgress < 90 && "Calculando recirculações e iterando circuito..."}
+                    {loadingProgress >= 90 && loadingProgress < 97 && "Resolvendo convergência e tolerância do solver..."}
+                    {loadingProgress >= 97 && "Gerando balanço de massa e salvando relatórios..."}
+                  </motion.p>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full space-y-2">
+                <div className="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <span>Processando circuito</span>
+                  <span className="font-mono text-orange-600">{loadingProgress}%</span>
+                </div>
+                <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50 p-0.5">
+                  <motion.div
+                    className="h-full bg-gradient-to-r from-orange-500 to-orange-600 rounded-full"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${loadingProgress}%` }}
+                    transition={{ duration: 0.1 }}
+                  />
+                </div>
+              </div>
+
+              {/* Status footer */}
+              <div className="inline-flex items-center space-x-2 px-3 py-1 bg-slate-50 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-wider">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>MISIMWEB Solver V3.1</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

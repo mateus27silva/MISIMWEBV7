@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   FileText, 
   Download, 
@@ -29,14 +29,18 @@ import {
   ChevronLeft,
   Plus,
   X,
-  Cpu
+  Cpu,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { SimulationResult } from '../services/flowsheetSolver';
-import { EquipmentType, Connection, StreamData, Component, UnitConfig, LogEntry } from '../types';
+import { EquipmentType, Connection, StreamData, Component, UnitConfig, LogEntry, NodeData } from '../types';
+import { parseStoichiometry } from '../services/models/sharedModels';
 
 interface ResultsViewProps {
   results: SimulationResult | null;
   connections: Connection[];
+  nodes: NodeData[];
   projectName?: string;
   units: UnitConfig;
   onNavigate: (view: EquipmentType) => void;
@@ -48,6 +52,7 @@ interface ResultsViewProps {
 export const ResultsView: React.FC<ResultsViewProps> = ({ 
     results, 
     connections = [], 
+    nodes = [],
     projectName, 
     units, 
     onNavigate,
@@ -66,8 +71,9 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
       physical: true,
       grade: true,
-      mass: false,
-      element: false,
+      mass: true,
+      element: true,
+      element_mass: true,
       user_params: true,
       calc_performance: true
   });
@@ -77,34 +83,52 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   };
 
   // Helper to extract unique elements from active components for headers
-  const getUniqueElements = (components: Component[]) => {
+  const getUniqueElements = useCallback((components: Component[]) => {
       const elements = new Set<string>();
       if (!components || !Array.isArray(components)) return [];
       
       components.forEach(m => {
           if (m && m.elementalComposition) {
-              const parts = m.elementalComposition.split(',');
-              parts.forEach(part => {
-                  const segment = part.split(':');
-                  if (segment.length > 0) {
-                      const el = segment[0].trim();
-                      if (el) elements.add(el);
-                  }
-              });
+              const stoichiometry = parseStoichiometry(m.elementalComposition);
+              Object.keys(stoichiometry).forEach(el => elements.add(el));
+          } else if (m && m.stoichiometry) {
+              Object.keys(m.stoichiometry).forEach(el => elements.add(el));
           }
       });
+
+      // Fallback: search in results for any calculated elements not found in components list
+      if (results && results.streams) {
+          Object.values(results.streams).forEach(s => {
+              const stream = s as StreamData;
+              if (stream && stream.elementalAssays) {
+                  Object.keys(stream.elementalAssays).forEach(el => elements.add(el));
+              }
+          });
+      }
+
       return Array.from(elements).sort();
-  };
+  }, [results]);
 
   const streamList = useMemo(() => {
     if (!results) return [];
     return Object.entries(results.streams || {}).map(([id, s]) => {
       const stream = s as StreamData;
       const connection = (connections || []).find(c => c.id === id);
-      const label = connection?.label || (typeof id === 'string' ? (id.split('_')[1] || id) : 'Stream');
+      
+      let label = connection?.label;
+      if (!label || label === 'Stream') {
+          const fromNode = nodes.find(n => n.id === connection?.fromNode);
+          const toNode = nodes.find(n => n.id === connection?.toNode);
+          if (fromNode || toNode) {
+              label = `${fromNode?.label || 'Início'} → ${toNode?.label || 'Fim'}`;
+          } else {
+              label = typeof id === 'string' ? (id.split('_')[1] || id) : 'Stream';
+          }
+      }
+      
       return { id, label, stream, connection };
     });
-  }, [results, connections]);
+  }, [results, connections, nodes]);
 
   const nodeResultItems = useMemo(() => {
     if (!results) return [];
@@ -186,7 +210,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   }
 
   const hasMinerals = Array.isArray(results.activeMinerals) && results.activeMinerals.length > 0;
-  const uniqueElements = hasMinerals ? getUniqueElements(results.activeMinerals || []) : [];
+  const uniqueElements = getUniqueElements(results.activeMinerals || []);
   
   const statusMessages = [];
   const safeError = results.error || 0;
@@ -225,8 +249,44 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   }
 
   // Unified list of row definitions for equipment performance
+  const dynamicRows = useMemo(() => {
+    const rows: any[] = [];
+    const mineralsFound = new Set<string>();
+    const generalFound = new Set<string>();
+    
+    nodeResultItems.forEach(meta => {
+        if (!meta) return;
+        Object.keys(meta).forEach(k => {
+            if (k.startsWith('mineral_')) {
+                mineralsFound.add(k.replace('mineral_', ''));
+            }
+            if (k === 'f80' || k === 'p80' || k === 'totalTphAlvo' || k === 'solidsTph' || k === 'percentSolids') {
+                generalFound.add(k);
+            }
+        });
+    });
+    
+    // Add Feed characteristics
+    if (generalFound.has('totalTphAlvo')) rows.push({ key: 'totalTphAlvo', label: 'Capacidade Alvo', unit: units.massFlow, section: 'user_params' });
+    if (generalFound.has('solidsTph')) rows.push({ key: 'solidsTph', label: 'Vazão Sólidos (F)', unit: units.massFlow, section: 'user_params' });
+    if (generalFound.has('percentSolids')) rows.push({ key: 'percentSolids', label: '% Sólidos (F)', unit: '%', section: 'user_params' });
+    if (generalFound.has('f80')) rows.push({ key: 'f80', label: 'F80 (Alimentação)', unit: units.particleSize, section: 'user_params' });
+    if (generalFound.has('p80')) rows.push({ key: 'p80', label: 'P80 (Design Alvo)', unit: units.particleSize, section: 'user_params' });
+    
+    // Add Minerals dynamic rows
+    mineralsFound.forEach(compId => {
+        const comp = results.activeMinerals?.find(m => m.id === compId);
+        if (comp) {
+            rows.push({ key: `mineral_${compId}`, label: comp.name, unit: '%', section: 'user_params' });
+        }
+    });
+    
+    return rows;
+  }, [nodeResultItems, results.activeMinerals, units]);
+
   const performanceRowDefs = [
     { section: 'user_params', header: 'PARÂMETROS DE ENTRADA (USER)' },
+    ...dynamicRows,
     { key: 'diameter', label: 'Diâmetro Interno', unit: 'ft', section: 'user_params' },
     { key: 'length', label: 'Comprimento (EGL)', unit: 'ft', section: 'user_params' },
     { key: 'speedPctCrit', label: 'Velocidade Crítica', unit: '%', section: 'user_params' },
@@ -440,6 +500,15 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                                             <div className="flex items-center justify-center space-x-1 mb-1">
                                                 {ent.type === 'stream' ? <Waves className="w-3 h-3 text-blue-400" /> : <Settings2 className="w-3 h-3 text-indigo-400" />}
                                                 <span className="text-[9px] opacity-50">{ent.type === 'stream' ? 'STREAM' : 'EQUIP'}</span>
+                                                {columnSelections.length > 1 && (
+                                                    <button 
+                                                      onClick={() => removeColumn(idx)}
+                                                      className="ml-2 text-slate-300 hover:text-red-500 transition-colors"
+                                                      title="Ocultar Coluna"
+                                                    >
+                                                        <EyeOff className="w-3 h-3" />
+                                                    </button>
+                                                )}
                                             </div>
                                             <select 
                                                 value={ent.id}
@@ -462,15 +531,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                                             </div>
                                           </div>
                                           
-                                          {columnSelections.length > 1 && (
-                                              <button 
-                                                onClick={() => removeColumn(idx)}
-                                                className="absolute -top-1 -right-1 p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                              >
-                                                  <X className="w-3 h-3" />
-                                              </button>
-                                          )}
-                                      </th>
+                                              {/* Remove the absolute button as we moved it into the label area */}
+                                          </th>
                                   ))}
                                   <th className="px-2 bg-slate-50/30 border-l border-slate-100 w-10">
                                       <button 
@@ -548,7 +610,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                                       <td className="bg-slate-50/10"></td>
                                   </tr>
                                   <tr className="hover:bg-blue-50/30">
-                                      <td className="px-6 py-3 font-bold text-slate-700 sticky left-0 bg-white z-10 w-60 min-w-[240px]">Densidade Mineralógica</td>
+                                      <td className="px-6 py-3 font-bold text-slate-700 sticky left-0 bg-white z-10 w-60 min-w-[240px]">Densidade Mineral</td>
                                       <td className="px-4 py-3 text-slate-400 text-xs text-center sticky left-[240px] bg-white z-10 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-20 min-w-[80px]">{units.solidDensity}</td>
                                       {displayedEntities.map((ent, i) => (
                                           <td key={i} className="px-6 py-3 text-center font-bold text-slate-800">{ent.type === 'stream' ? (ent.data?.sgSolids ?? 2.7).toFixed(2) : '-'}</td>
@@ -592,6 +654,36 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                                           </tr>
                                       ))}
 
+                                      {/* --- COMPOSITION SECTION (t/h) --- */}
+                                      <tr 
+                                        onClick={() => toggleSection('mass')}
+                                        className="bg-slate-50/80 cursor-pointer hover:bg-slate-100 transition-colors border-y border-slate-200"
+                                      >
+                                          <td colSpan={displayedEntities.length + 3} className="px-6 py-2 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">
+                                              <div className="flex items-center">
+                                                  {expandedSections.mass ? <ChevronDown className="w-3 h-3 mr-2" /> : <ChevronRight className="w-3 h-3 mr-2" />}
+                                                  <Layers className="w-3.5 h-3.5 mr-2 text-blue-500" /> Fluxo de Minerais ({units.massFlow})
+                                              </div>
+                                          </td>
+                                      </tr>
+                                      {expandedSections.mass && (results.activeMinerals || []).map(m => (
+                                          <tr key={`mass-${m.id}`} className="hover:bg-blue-50/30">
+                                              <td className="px-6 py-3 font-bold text-slate-700 sticky left-0 bg-white z-10 w-60 min-w-[240px]">
+                                                  {m.name}
+                                                  <span className="block text-[10px] font-normal text-slate-400 uppercase tracking-tighter">{m.formula}</span>
+                                              </td>
+                                              <td className="px-4 py-3 text-slate-400 text-xs text-center sticky left-[240px] bg-white z-10 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-20 min-w-[80px]">{units.massFlow}</td>
+                                              {displayedEntities.map((ent, i) => {
+                                                  if (ent.type !== 'stream') return <td key={i} className="px-6 py-3 text-center font-bold text-slate-300">-</td>;
+                                                  const mass = ent.data?.mineralFlows?.[m.id] || 0;
+                                                  return (
+                                                      <td key={i} className="px-6 py-3 text-center font-bold text-blue-800">{(mass ?? 0).toFixed(2)}</td>
+                                                  );
+                                              })}
+                                              <td className="bg-slate-50/10"></td>
+                                          </tr>
+                                      ))}
+
                                       {/* --- ELEMENTAL ASSAY SECTION --- */}
                                       <tr 
                                         onClick={() => toggleSection('element')}
@@ -610,6 +702,29 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                                               <td className="px-4 py-3 text-slate-400 text-xs text-center sticky left-[240px] bg-white z-10 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-20 min-w-[80px]">%</td>
                                               {displayedEntities.map((ent, i) => (
                                                   <td key={i} className="px-6 py-3 text-center font-black text-teal-700">{ent.type === 'stream' ? (ent.data?.elementalAssays?.[el] ?? 0).toFixed(4) : '-'}</td>
+                                              ))}
+                                              <td className="bg-slate-50/10"></td>
+                                          </tr>
+                                      ))}
+
+                                      {/* --- ELEMENTAL MASS SECTION --- */}
+                                      <tr 
+                                        onClick={() => toggleSection('element_mass')}
+                                        className="bg-slate-50/80 cursor-pointer hover:bg-slate-100 transition-colors border-y border-slate-200"
+                                      >
+                                          <td colSpan={displayedEntities.length + 3} className="px-6 py-2 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">
+                                              <div className="flex items-center">
+                                                  {expandedSections.element_mass ? <ChevronDown className="w-3 h-3 mr-2" /> : <ChevronRight className="w-3 h-3 mr-2" />}
+                                                  <Box className="w-3.5 h-3.5 mr-2 text-teal-600" /> Fluxo Elemental ({units.massFlow})
+                                              </div>
+                                          </td>
+                                      </tr>
+                                      {expandedSections.element_mass && uniqueElements.map(el => (
+                                          <tr key={`elmass-${el}`} className="hover:bg-teal-50/30">
+                                              <td className="px-6 py-3 font-bold text-slate-700 sticky left-0 bg-white z-10 w-60 min-w-[240px]">{el}</td>
+                                              <td className="px-4 py-3 text-slate-400 text-xs text-center sticky left-[240px] bg-white z-10 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-20 min-w-[80px]">{units.massFlow}</td>
+                                              {displayedEntities.map((ent, i) => (
+                                                  <td key={i} className="px-6 py-3 text-center font-black text-teal-800">{ent.type === 'stream' ? (ent.data?.elementalMassFlows?.[el] ?? 0).toFixed(3) : '-'}</td>
                                               ))}
                                               <td className="bg-slate-50/10"></td>
                                           </tr>

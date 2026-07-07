@@ -113,7 +113,7 @@ const App: React.FC = () => {
           console.warn("Projects fetch error:", projError.message || projError);
       }
 
-      const isAdmin = (profile?.is_admin) || (email === "eng.mateusgsilva@gmail.com");
+      const isAdmin = profile && typeof profile.is_admin === 'boolean' ? profile.is_admin : (email === "eng.mateusgsilva@gmail.com");
       
       const newUser: User = {
         id: userId,
@@ -159,8 +159,9 @@ const App: React.FC = () => {
         fetchUserData(session.user.id, session.user.email!);
       } else {
         setUser(null);
-        setProjects([]);
-        setActiveProjectId('');
+        const guestProject = createNewProject('Simulação Convidado');
+        setProjects([guestProject]);
+        setActiveProjectId(guestProject.id);
       }
     });
 
@@ -239,7 +240,13 @@ const App: React.FC = () => {
   const activeProject = projects.find(p => p && p.id === activeProjectId) || projects[0] || createNewProject('Iniciando...');
 
   const updateActiveProject = (updater: (p: ProjectSession) => ProjectSession) => {
-      setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...updater(p), lastModified: Date.now() } : p));
+      setProjects(prev => {
+          const exists = prev.some(p => p.id === activeProjectId);
+          if (!exists && activeProjectId) {
+              console.warn(`Project not found in state: ${activeProjectId}. Active project might be in fallback mode.`);
+          }
+          return prev.map(p => p.id === activeProjectId ? { ...updater(p), lastModified: Date.now() } : p);
+      });
   };
 
   const handleTakeSnapshot = () => {
@@ -384,6 +391,7 @@ const App: React.FC = () => {
         .update({
           full_name: updates.name,
           bio: updates.subtitle,
+          avatar_url: updates.avatarUrl,
         })
         .eq('id', user.id);
       
@@ -424,32 +432,35 @@ const App: React.FC = () => {
   };
 
   const handleSimulationComplete = async (results: SimulationResult) => {
+      console.log("Simulation complete received in App.tsx. Converged:", results.converged);
       updateActiveProject(p => ({ ...p, simulationResult: results }));
       
       if (user) {
-          const { data, error } = await supabase.rpc('process_simulation_billing', { 
-            p_cost_amount: 10 
-          });
-          
-          if (error) {
-              console.error("Falha no RPC (Billing):", error.message || error);
-              addNotification(
-                "Erro de Faturamento", 
-                `Não foi possível processar os créditos: ${error.message || "Erro desconhecido"}.`, 
-                "credit"
-              );
-              return;
-          }
-
-          const resultRow = Array.isArray(data) ? data[0] : data;
-          
-          if (resultRow) {
-              const { new_credits, new_sim_count } = resultRow;
-              setUser(prev => prev ? ({ 
-                  ...prev, 
-                  credits: new_credits, 
-                  stats: { ...prev.stats, simulations: new_sim_count } 
-              }) : null);
+          try {
+              const { data, error } = await supabase.rpc('process_simulation_billing', { 
+                p_cost_amount: 10 
+              });
+              
+              if (error) {
+                  console.warn("Billing RPC failed, but displaying results anyway:", error.message);
+                  addNotification(
+                    "Billing Warning", 
+                    "Não foi possível processar os créditos, mas o resultado foi gerado.", 
+                    "info"
+                  );
+              } else {
+                  const resultRow = Array.isArray(data) ? data[0] : data;
+                  if (resultRow) {
+                      const { new_credits, new_sim_count } = resultRow;
+                      setUser(prev => prev ? ({ 
+                          ...prev, 
+                          credits: new_credits, 
+                          stats: { ...prev.stats, simulations: new_sim_count } 
+                      }) : null);
+                  }
+              }
+          } catch (e) {
+              console.error("Billing error:", e);
           }
       }
 
@@ -460,10 +471,15 @@ const App: React.FC = () => {
       }
   };
 
-  const handleUpdateCredits = (newCredits: number) => {
+  const handleUpdateCredits = async (newCredits: number) => {
     if (user) {
         setUser(prev => prev ? ({ ...prev, credits: newCredits }) : null);
-        supabase.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+        try {
+            const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+            if (error) throw error;
+        } catch (err: any) {
+            console.error("Erro ao sincronizar créditos no banco:", err.message || err);
+        }
     }
   };
 
@@ -478,6 +494,12 @@ const App: React.FC = () => {
   };
 
   const handleNavigate = (view: EquipmentType, instanceId?: string) => {
+    // SECURITY GUARD: Only admins can navigate to the Admin View
+    if (view === EquipmentType.ADMIN && !user?.isAdmin) {
+        setCurrentView(EquipmentType.DASHBOARD);
+        return;
+    }
+
     const viewToTabMap: Record<string, string> = {
         [EquipmentType.ECONOMICS]: 'economics',
         [EquipmentType.UNITS]: 'units',
@@ -585,6 +607,7 @@ const App: React.FC = () => {
                   currentUser={user} 
                   onUpdateCurrentCredits={handleUpdateCredits} 
                   onUpdateUserPlan={handleUpdateUserPlan} 
+                  onUpdateUserAdmin={(isAdmin) => setUser(prev => prev ? ({ ...prev, isAdmin }) : null)}
                   permissions={permissions} 
                   onUpdatePermissions={setPermissions} 
                />;

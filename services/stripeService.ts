@@ -101,6 +101,52 @@ export const createStripeCustomerAndTrial = async (userId: string, email: string
     }
 };
 
+/**
+ * Cria uma sessão de checkout para o Fã-clube (Doação)
+ */
+export const createFanClubSession = async (userId: string, amount: number, email: string) => {
+    try {
+        const response = await fetch('/api/create-fan-club-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, amount, email })
+        });
+        
+        const data = await response.json();
+        if (data.url) {
+            window.location.href = data.url;
+        } else {
+            throw new Error(data.error || 'Erro ao gerar sessão de checkout');
+        }
+    } catch (err: any) {
+        console.error("Erro no Fan Club checkout:", err);
+        alert(`Erro: ${err.message}`);
+    }
+};
+
+/**
+ * Cria uma sessão de checkout para Assinatura (Fã-clube VIP)
+ */
+export const createSubscriptionSession = async (userId: string, priceId: string, email: string) => {
+    try {
+        const response = await fetch('/api/create-subscription-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, priceId, email })
+        });
+        
+        const data = await response.json();
+        if (data.url) {
+            window.location.href = data.url;
+        } else {
+            throw new Error(data.error || 'Erro ao gerar sessão de assinatura');
+        }
+    } catch (err: any) {
+        console.error("Erro no Subscription checkout:", err);
+        alert(`Erro: ${err.message}`);
+    }
+};
+
 export const openStripePortal = async (customerId: string) => {
     window.open(`https://billing.stripe.com/p/login/test_customer_${customerId}`, '_blank');
 };

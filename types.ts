@@ -61,7 +61,7 @@ export interface PlanPermissions {
 export interface UserProfile {
   id: string;
   full_name: string;
-  email: string; // Novo campo
+  email: string;
   credits: number;
   plan: PlanType;
   is_admin: boolean;
@@ -70,6 +70,9 @@ export interface UserProfile {
   is_trial_active?: boolean;
   days_free?: number;
   updated_at?: string;
+  is_fan_club_member?: boolean;
+  last_payment_amount?: number;
+  stripe_subscription_id?: string;
 }
 
 export interface UnitConfig {
@@ -141,7 +144,8 @@ export interface StreamData {
   percentSolids: number;
   slurryDensity: number;
   mineralFlows: Record<string, number>;
-  elementalAssays: Record<string, number>;
+  elementalAssays?: Record<string, number>;
+  elementalMassFlows?: Record<string, number>;
   sgSolids: number;
   p80?: number;
   f80?: number;

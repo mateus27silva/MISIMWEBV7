@@ -1,0 +1,239 @@
+[
+  {
+    "id": 100,
+    "author": "user",
+    "payload": {
+      "type": "text",
+      "text": "COLOQUE ESSE LINK PARA OS PAGAMENTOS DE CREDITOS AVULSOS: https://buy.stripe.com/test_28EbJ374b4JQ6Kx8NZeQM06",
+      "files": [],
+      "fileUploads": [],
+      "cssBlocks": [],
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771356494,
+      "nanos": 48000000
+    }
+  },
+  {
+    "id": 101,
+    "author": "model",
+    "payload": {
+      "type": "thinking",
+      "text": "**Updating Stripe Service**\n\nOkay, I'm focusing on the `services/stripeService.ts` file right now. My main objective is to update the \"Créditos Avulsos\" fallback link. I need to make the change to the provided URL: `https://buy.stripe.com/test_28EbJ374b4JQ6K`. I'm getting there, almost ready.\n\n\n**Adjusting Stripe Fallback Link**\n\nI've zeroed in on the `services/stripeService.ts` file, specifically the `fallbackLinks` object. I have confirmed that the specified URL, `https://buy.stripe.com/test_28EbJ374b4JQ6Kx8NZeQM06`, corresponds to the 'pack_100_extra' key. My plan is now to replace the existing value for that key with the newly provided link. I don't see any dependencies or other files affected by this particular change. The update is isolated.\n\n\n**Verifying Credit Payment Fallback**\n\nI'm now confirming the logic. When a purchase fails, the update will redirect to the Stripe checkout link. This is a logic-only change in `services/stripeService.ts`. I checked `views/SettingsView.tsx` and confirmed `pack_100_extra` is the correct identifier. Also, I am confirming the existing and new values of the link. It's time to modify the `services/stripeService.ts` file.\n\n\n**Finalizing Stripe File Update**\n\nI'm now generating the updated XML output for the changes. My primary task is creating the `<content>` block with the new file content for `services/stripeService.ts`. I am considering how the success URL handles parameters, ensuring I present a complete and accurate update, even if the \"route\" isn't a traditional URL route.\n\n\n**Confirming Updated URL**\n\nI'm now absolutely sure the URL `https://buy.stripe.com/test_28EbJ374b4JQ6Kx8NZeQM06` is correct for the `services/stripeService.ts` file. I've double-checked both the path and the link itself, confirming I have the correct location. This update focuses on ensuring a seamless redirect for credit purchases.\n\n\n**Implementing Stripe Success URL**\n\nI'm now integrating the success URL handling for Stripe payments into the function. I'm focusing on ensuring `successUrl` correctly points to `${window.location.origin}/settings?payment=success`. Also, I'm checking the `cancelUrl` to be `${window.location.origin}/settings`. I am focusing on making sure that the flow is consistent.\n\n\n**Refining URL Logic**\n\nI'm now implementing the dynamic URL generation for Stripe checkout, focusing on `client_reference_id` inclusion and fallback mechanisms within `services/stripeService.ts`. I am ensuring that the correct `userId` is passed to the Stripe payment flow for credit assignment. I have confirmed I'm correctly constructing and assigning the `finalUrl`, handling potential errors gracefully.\n\n\n",
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771356494,
+      "nanos": 48000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771356506,
+      "nanos": 806000000
+    }
+  },
+  {
+    "id": 102,
+    "author": "model",
+    "payload": {
+      "type": "text",
+      "text": "I will update the Stripe payment configuration to include the correct checkout link for extra credits as requested.\n\n### Specification:\n1. **Update `services/stripeService.ts`**: The `fallbackLinks` object will be updated to point the `pack_100_extra` key (which corresponds to \"Créditos Avulsos\") to the new Stripe URL provided: `https://buy.stripe.com/test_28EbJ374b4JQ6Kx8NZeQM06`.\n2. **Behavior**: When a user clicks to buy \"Créditos Avulsos\" and the backend Edge Function is unavailable, the application will correctly redirect the user to the updated Stripe checkout page.\n\n",
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771356506,
+      "nanos": 806000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771356506,
+      "nanos": 960000000
+    }
+  },
+  {
+    "id": 103,
+    "author": "model",
+    "payload": {
+      "type": "generationTable",
+      "entries": [
+        {
+          "path": "services/stripeService.ts",
+          "generationType": 1,
+          "isDone": true,
+          "description": "Update the fallback payment link for extra credits (Créditos Avulsos) to the new provided Stripe URL.",
+          "diffs": [
+            {
+              "target": "",
+              "replacement": "import { supabase } from './supabaseClient';\n\nconst STRIPE_PUBLISHABLE_KEY = 'pk_test_51SPY6iR9jvo0kTyDi1pmNAamC9ny4FyQBlIuZQFxBcP0ufXBLKwzhkRSdiqKQMydmaZ71IjW6pof8jyVzS43zokA004O0rUMa2';\n\n/**\n * Inicializa o Stripe.\n */\nexport const getStripe = () => {\n    if (typeof window !== 'undefined' && (window as any).Stripe) {\n        return (window as any).Stripe(STRIPE_PUBLISHABLE_KEY);\n    }\n    return null;\n};\n\n/**\n * Cria uma sessão de checkout no Stripe.\n * @param userId ID do usuário no Supabase\n * @param packageId Identificador do pacote (ex: 'pack_100', 'pack_500')\n */\nexport const createCheckoutSession = async (userId: string, packageId: string) => {\n    try {\n        console.log(`Iniciando Checkout: Usuário ${userId}, Pacote ${packageId}`);\n        \n        // Chamada para a Edge Function de Checkout do Supabase\n        const { data, error } = await supabase.functions.invoke('create-stripe-checkout', {\n            body: { \n                userId, \n                packageId,\n                successUrl: `${window.location.origin}/settings?payment=success`,\n                cancelUrl: `${window.location.origin}/settings`\n            }\n        });\n\n        // Se a Edge Function não estiver implantada, usamos o Link de Pagamento Direto como Fallback\n        if (error || !data?.url) {\n            console.warn(\"Edge Function 'create-stripe-checkout' não encontrada ou erro na execução. Usando Fallback...\");\n            \n            // Mapeamento de links de fallback para os pacotes definidos no SettingsView\n            const fallbackLinks: Record<string, string> = {\n                'pack_100': 'https://buy.stripe.com/test_bJe7sNcovekq6Kxe8jeQM04',\n                'pack_100_extra': 'https://buy.stripe.com/test_28EbJ374b4JQ6Kx8NZeQM06',\n                'pack_500': 'https://buy.stripe.com/test_55B25qdpw1uB3vj145', \n                'pack_1000': 'https://buy.stripe.com/test_88C36repx2vC4wk286'\n            };\n\n            const baseUrl = fallbackLinks[packageId] || fallbackLinks['pack_100'];\n            // O client_reference_id é o que permite ao Webhook saber QUEM pagou para adicionar os créditos\n            const finalUrl = `${baseUrl}?client_reference_id=${userId}`;\n            \n            window.location.href = finalUrl;\n            return;\n        }\n\n        // Redireciona para a URL gerada pela Edge Function (Checkout dinâmico)\n        window.location.href = data.url;\n    } catch (err) {\n        console.error(\"Erro crítico ao processar checkout:\", err);\n        alert(\"Erro ao conectar com o gateway de pagamento. Verifique o console para detalhes.\");\n    }\n};\n\n/**\n * Verifica e sincroniza os créditos após o retorno do Stripe\n */\nexport const syncCreditsAfterPayment = async (userId: string) => {\n    const { data, error } = await supabase\n        .from('profiles')\n        .select('credits')\n        .eq('id', userId)\n        .single();\n    \n    if (error) {\n        console.error(\"Erro na sincronização pós-pagamento:\", error);\n        return null;\n    }\n    return data.credits;\n};\n\nexport const createStripeCustomerAndTrial = async (userId: string, email: string, fullName: string) => {\n    try {\n        const { data, error } = await supabase.functions.invoke('manage-stripe-registration', {\n            body: { userId, email, fullName, plan: 'Starter', trialDays: 30 }\n        });\n\n        if (error) {\n            // Simulação local se a função de registro não existir\n            const trialEnd = new Date();\n            trialEnd.setDate(trialEnd.getDate() + 30);\n            await supabase.from('profiles').update({\n                stripe_customer_id: `cus_sim_${Math.random().toString(36).substring(7)}`,\n                trial_end_date: trialEnd.toISOString(),\n                is_trial_active: true,\n                days_free: 30,\n                credits: 100 \n            }).eq('id', userId);\n            return { success: true, simulated: true };\n        }\n        return { success: true, data };\n    } catch (err) {\n        return { success: false, error: err };\n    }\n};\n\nexport const openStripePortal = async (customerId: string) => {\n    window.open(`https://billing.stripe.com/p/login/test_customer_${customerId}`, '_blank');\n};"
+            }
+          ]
+        }
+      ]
+    },
+    "createdTimestamp": {
+      "seconds": 1771356507,
+      "nanos": 673000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771356521,
+      "nanos": 2000000
+    }
+  },
+  {
+    "id": 105,
+    "author": "user",
+    "payload": {
+      "type": "text",
+      "text": "COLOQUE ESSE LINK PARA OS PAGAMENTOS DE PRO PACK: https://buy.stripe.com/test_cNi14p4W31xEfh35BNeQM07",
+      "files": [],
+      "fileUploads": [],
+      "cssBlocks": [],
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771357145,
+      "nanos": 929000000
+    }
+  },
+  {
+    "id": 106,
+    "author": "model",
+    "payload": {
+      "type": "thinking",
+      "text": "**Updating Stripe Link**\n\nI'm working on updating the Stripe payment link for the PRO PACK. I've pinpointed the relevant code within `services/stripeService`. The plan is to change the existing PRO PACK link to `https://buy.stripe.com/test_cNi14p4W31xEfh35BNeQM07`. I will verify the change with a test payment.\n\n\n**Refining Stripe Configuration**\n\nI'm now zeroing in on the correct place to adjust the Stripe links. I've confirmed that `pack_500` in `services/stripeService.ts` corresponds to the \"Pro Pack\". I'm replacing its value with the supplied link, `https://buy.stripe.com/test_cNi14p4W31xEfh35BNeQM07`. I'm double-checking the code to ensure I haven't missed any other potentially impacted keys like `pack_100_extra`, making sure it accurately reflects the latest requests regarding \"PRO PACK\".\n\n\n**Adjusting Stripe URLs**\n\nI am now focusing on refining the Stripe URL configurations. I've located the specific keys within the `services/stripeService.ts` file. I plan to change the `pack_500` URL, which corresponds to the Pro Pack, to the updated link, 'https://buy.stripe.com/test_55B25qdpw1uB3vj145'. I'm also ensuring that no other associated package IDs are affected by this change.\n\n\n**Validating Functionality**\n\nI'm now integrating a fallback mechanism due to possible Edge Function deployment issues. I've designed the `createCheckoutSession` to use a direct payment link in case the Supabase Edge Function is unavailable. I've created a direct link fallback mapping that will check for `error` or missing `data.url` and use fallback links. I'm verifying the fallback's effectiveness and ensuring each package has a defined fallback URL.\n\n\n**Implementing Fallback Logic**\n\nI'm now integrating the updated Stripe links with comprehensive fallback mechanisms in `stripeService.ts`. I have updated the `fallbackLinks` object with the new `test` links for `pack_100_extra`, `pack_500` and `pack_1000`. I'm working on ensuring the system defaults to `pack_100` if no matching ID is found. The goal is a resilient payment flow, even with Edge Function issues. I'll test the scenarios.\n\n\n",
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771357145,
+      "nanos": 929000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771357155,
+      "nanos": 860000000
+    }
+  },
+  {
+    "id": 107,
+    "author": "model",
+    "payload": {
+      "type": "text",
+      "text": "Com certeza. Como engenheiro sênior, atualizei o mapeamento de pagamentos no serviço do Stripe para refletir o novo link de checkout do **Pro Pack**.\n\n### Especificações das Alterações:\n\n1.  **Arquivo `services/stripeService.ts`**: Atualizei o dicionário `fallbackLinks`. A chave `pack_500` (que corresponde ao Pro Pack no `SettingsView`) agora aponta para a URL: `https://buy.stripe.com/test_cNi14p4W31xEfh35BNeQM07`.\n2.  **Comportamento**: Caso a Edge Function do Supabase não responda ou não esteja configurada, o sistema redirecionará automaticamente o usuário para este novo link de checkout seguro da Stripe, anexando o `client_reference_id` para garantir que os créditos sejam atribuídos corretamente ao usuário logado após a confirmação do pagamento.\n\n",
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771357155,
+      "nanos": 860000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771357156,
+      "nanos": 54000000
+    }
+  },
+  {
+    "id": 108,
+    "author": "model",
+    "payload": {
+      "type": "generationTable",
+      "entries": [
+        {
+          "path": "services/stripeService.ts",
+          "generationType": 1,
+          "isDone": true,
+          "description": "Update the fallback payment link for the Pro Pack (pack_500) to the new provided Stripe URL.",
+          "diffs": [
+            {
+              "target": "",
+              "replacement": "import { supabase } from './supabaseClient';\n\nconst STRIPE_PUBLISHABLE_KEY = 'pk_test_51SPY6iR9jvo0kTyDi1pmNAamC9ny4FyQBlIuZQFxBcP0ufXBLKwzhkRSdiqKQMydmaZ71IjW6pof8jyVzS43zokA004O0rUMa2';\n\n/**\n * Inicializa o Stripe.\n */\nexport const getStripe = () => {\n    if (typeof window !== 'undefined' && (window as any).Stripe) {\n        return (window as any).Stripe(STRIPE_PUBLISHABLE_KEY);\n    }\n    return null;\n};\n\n/**\n * Cria uma sessão de checkout no Stripe.\n * @param userId ID do usuário no Supabase\n * @param packageId Identificador do pacote (ex: 'pack_100', 'pack_500')\n */\nexport const createCheckoutSession = async (userId: string, packageId: string) => {\n    try {\n        console.log(`Iniciando Checkout: Usuário ${userId}, Pacote ${packageId}`);\n        \n        // Chamada para a Edge Function de Checkout do Supabase\n        const { data, error } = await supabase.functions.invoke('create-stripe-checkout', {\n            body: { \n                userId, \n                packageId,\n                successUrl: `${window.location.origin}/settings?payment=success`,\n                cancelUrl: `${window.location.origin}/settings`\n            }\n        });\n\n        // Se a Edge Function não estiver implantada, usamos o Link de Pagamento Direto como Fallback\n        if (error || !data?.url) {\n            console.warn(\"Edge Function 'create-stripe-checkout' não encontrada ou erro na execução. Usando Fallback...\");\n            \n            // Mapeamento de links de fallback para os pacotes definidos no SettingsView\n            const fallbackLinks: Record<string, string> = {\n                'pack_100': 'https://buy.stripe.com/test_bJe7sNcovekq6Kxe8jeQM04',\n                'pack_100_extra': 'https://buy.stripe.com/test_28EbJ374b4JQ6Kx8NZeQM06',\n                'pack_500': 'https://buy.stripe.com/test_cNi14p4W31xEfh35BNeQM07', \n                'pack_1000': 'https://buy.stripe.com/test_88C36repx2vC4wk286'\n            };\n\n            const baseUrl = fallbackLinks[packageId] || fallbackLinks['pack_100'];\n            // O client_reference_id é o que permite ao Webhook saber QUEM pagou para adicionar os créditos\n            const finalUrl = `${baseUrl}?client_reference_id=${userId}`;\n            \n            window.location.href = finalUrl;\n            return;\n        }\n\n        // Redireciona para a URL gerada pela Edge Function (Checkout dinâmico)\n        window.location.href = data.url;\n    } catch (err) {\n        console.error(\"Erro crítico ao processar checkout:\", err);\n        alert(\"Erro ao conectar com o gateway de pagamento. Verifique o console para detalhes.\");\n    }\n};\n\n/**\n * Verifica e sincroniza os créditos após o retorno do Stripe\n */\nexport const syncCreditsAfterPayment = async (userId: string) => {\n    const { data, error } = await supabase\n        .from('profiles')\n        .select('credits')\n        .eq('id', userId)\n        .single();\n    \n    if (error) {\n        console.error(\"Erro na sincronização pós-pagamento:\", error);\n        return null;\n    }\n    return data.credits;\n};\n\nexport const createStripeCustomerAndTrial = async (userId: string, email: string, fullName: string) => {\n    try {\n        const { data, error } = await supabase.functions.invoke('manage-stripe-registration', {\n            body: { userId, email, fullName, plan: 'Starter', trialDays: 30 }\n        });\n\n        if (error) {\n            // Simulação local se a função de registro não existir\n            const trialEnd = new Date();\n            trialEnd.setDate(trialEnd.getDate() + 30);\n            await supabase.from('profiles').update({\n                stripe_customer_id: `cus_sim_${Math.random().toString(36).substring(7)}`,\n                trial_end_date: trialEnd.toISOString(),\n                is_trial_active: true,\n                days_free: 30,\n                credits: 100 \n            }).eq('id', userId);\n            return { success: true, simulated: true };\n        }\n        return { success: true, data };\n    } catch (err) {\n        return { success: false, error: err };\n    }\n};\n\nexport const openStripePortal = async (customerId: string) => {\n    window.open(`https://billing.stripe.com/p/login/test_customer_${customerId}`, '_blank');\n};"
+            }
+          ]
+        }
+      ]
+    },
+    "createdTimestamp": {
+      "seconds": 1771357156,
+      "nanos": 930000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771357169,
+      "nanos": 222000000
+    }
+  },
+  {
+    "id": 110,
+    "author": "user",
+    "payload": {
+      "type": "text",
+      "text": "COLOQUE ESSE LINK PARA OS PAGAMENTOS DE CREDITOS AVULSOS:\nhttps://buy.stripe.com/test_eVq9AV74b906fh39S3eQM08",
+      "files": [],
+      "fileUploads": [],
+      "cssBlocks": [],
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771357262,
+      "nanos": 147000000
+    }
+  },
+  {
+    "id": 111,
+    "author": "model",
+    "payload": {
+      "type": "thinking",
+      "text": "**Updating Payment Links**\n\nI'm currently focused on the \"Créditos Avulsos\" Stripe payment link. The objective is to update the link within `services/stripeService.ts`. I need to replace the current `pack_100_extra` test link, currently set to `https://buy.stripe.com/test_28EbJ374b4JQ6Kx8NZeQM0`, with the appropriate updated link.\n\n\n**Verifying Payment Link Update**\n\nI've confirmed the new \"Créditos Avulsos\" Stripe payment link. It should be `https://buy.stripe.com/test_eVq9AV74b906fh39S3eQM08`. I've double-checked it against the prompt and previous updates. The plan is to replace the current link for `pack_100_extra` in `services/stripeService.ts` with this validated URL.\n\n\n",
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771357262,
+      "nanos": 148000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771357270,
+      "nanos": 587000000
+    }
+  },
+  {
+    "id": 112,
+    "author": "model",
+    "payload": {
+      "type": "text",
+      "text": "Com certeza. Como engenheiro full-stack, atualizei o link de checkout para **Créditos Avulsos** no serviço do Stripe.\n\n### Especificações das Alterações:\n\n1.  **Arquivo `services/stripeService.ts`**: O dicionário de links de fallback foi atualizado. A chave `pack_100_extra`, que gerencia a compra de créditos individuais na `SettingsView`, agora aponta para o novo link: `https://buy.stripe.com/test_eVq9AV74b906fh39S3eQM08`.\n2.  **Lógica de Redirecionamento**: Mantivemos a integração do `client_reference_id`, garantindo que, ao realizar o pagamento por este novo link, o Stripe envie o ID do usuário para o Webhook, permitindo a recarga automática dos créditos na conta correta.\n\n",
+      "cMarkNode": {}
+    },
+    "createdTimestamp": {
+      "seconds": 1771357270,
+      "nanos": 587000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771357270,
+      "nanos": 704000000
+    }
+  },
+  {
+    "id": 113,
+    "author": "model",
+    "payload": {
+      "type": "generationTable",
+      "entries": [
+        {
+          "path": "services/stripeService.ts",
+          "generationType": 1,
+          "isDone": true,
+          "description": "Atualiza o link de pagamento de fallback para Créditos Avulsos (pack_100_extra) para a nova URL do Stripe fornecida.",
+          "diffs": [
+            {
+              "target": "",
+              "replacement": "import { supabase } from './supabaseClient';\n\nconst STRIPE_PUBLISHABLE_KEY = 'pk_test_51SPY6iR9jvo0kTyDi1pmNAamC9ny4FyQBlIuZQFxBcP0ufXBLKwzhkRSdiqKQMydmaZ71IjW6pof8jyVzS43zokA004O0rUMa2';\n\n/**\n * Inicializa o Stripe.\n */\nexport const getStripe = () => {\n    if (typeof window !== 'undefined' && (window as any).Stripe) {\n        return (window as any).Stripe(STRIPE_PUBLISHABLE_KEY);\n    }\n    return null;\n};\n\n/**\n * Cria uma sessão de checkout no Stripe.\n * @param userId ID do usuário no Supabase\n * @param packageId Identificador do pacote (ex: 'pack_100', 'pack_500')\n */\nexport const createCheckoutSession = async (userId: string, packageId: string) => {\n    try {\n        console.log(`Iniciando Checkout: Usuário ${userId}, Pacote ${packageId}`);\n        \n        // Chamada para a Edge Function de Checkout do Supabase\n        const { data, error } = await supabase.functions.invoke('create-stripe-checkout', {\n            body: { \n                userId, \n                packageId,\n                successUrl: `${window.location.origin}/settings?payment=success`,\n                cancelUrl: `${window.location.origin}/settings`\n            }\n        });\n\n        // Se a Edge Function não estiver implantada, usamos o Link de Pagamento Direto como Fallback\n        if (error || !data?.url) {\n            console.warn(\"Edge Function 'create-stripe-checkout' não encontrada ou erro na execução. Usando Fallback...\");\n            \n            // Mapeamento de links de fallback para os pacotes definidos no SettingsView\n            const fallbackLinks: Record<string, string> = {\n                'pack_100': 'https://buy.stripe.com/test_bJe7sNcovekq6Kxe8jeQM04',\n                'pack_100_extra': 'https://buy.stripe.com/test_eVq9AV74b906fh39S3eQM08', \n                'pack_500': 'https://buy.stripe.com/test_cNi14p4W31xEfh35BNeQM07', \n                'pack_1000': 'https://buy.stripe.com/test_88C36repx2vC4wk286'\n            };\n\n            const baseUrl = fallbackLinks[packageId] || fallbackLinks['pack_100'];\n            // O client_reference_id é o que permite ao Webhook saber QUEM pagou para adicionar os créditos\n            const finalUrl = `${baseUrl}?client_reference_id=${userId}`;\n            \n            window.location.href = finalUrl;\n            return;\n        }\n\n        // Redireciona para a URL gerada pela Edge Function (Checkout dinâmico)\n        window.location.href = data.url;\n    } catch (err) {\n        console.error(\"Erro crítico ao processar checkout:\", err);\n        alert(\"Erro ao conectar com o gateway de pagamento. Verifique o console para detalhes.\");\n    }\n};\n\n/**\n * Verifica e sincroniza os créditos após o retorno do Stripe\n */\nexport const syncCreditsAfterPayment = async (userId: string) => {\n    const { data, error } = await supabase\n        .from('profiles')\n        .select('credits')\n        .eq('id', userId)\n        .single();\n    \n    if (error) {\n        console.error(\"Erro na sincronização pós-pagamento:\", error);\n        return null;\n    }\n    return data.credits;\n};\n\nexport const createStripeCustomerAndTrial = async (userId: string, email: string, fullName: string) => {\n    try {\n        const { data, error } = await supabase.functions.invoke('manage-stripe-registration', {\n            body: { userId, email, fullName, plan: 'Starter', trialDays: 30 }\n        });\n\n        if (error) {\n            // Simulação local se a função de registro não existir\n            const trialEnd = new Date();\n            trialEnd.setDate(trialEnd.getDate() + 30);\n            await supabase.from('profiles').update({\n                stripe_customer_id: `cus_sim_${Math.random().toString(36).substring(7)}`,\n                trial_end_date: trialEnd.toISOString(),\n                is_trial_active: true,\n                days_free: 30,\n                credits: 100 \n            }).eq('id', userId);\n            return { success: true, simulated: true };\n        }\n        return { success: true, data };\n    } catch (err) {\n        return { success: false, error: err };\n    }\n};\n\nexport const openStripePortal = async (customerId: string) => {\n    window.open(`https://billing.stripe.com/p/login/test_customer_${customerId}`, '_blank');\n};"
+            }
+          ]
+        }
+      ]
+    },
+    "createdTimestamp": {
+      "seconds": 1771357271,
+      "nanos": 640000000
+    },
+    "doneTimestamp": {
+      "seconds": 1771357278,
+      "nanos": 652000000
+    }
+  }
+]

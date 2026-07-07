@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Waves, Beaker, BarChart3, Plus, Trash2, ChevronDown } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { Component, UnitConfig, StreamData, PSDPoint } from '../types';
@@ -52,24 +52,43 @@ export const StreamForm = ({
     const isEditable = isFeed || isClassicOutput;
 
     const mineralTotals = useMemo(() => {
-        let totalVal = 0;
-        let weightedDensitySum = 0;
+        let totalPct = 0;
+        let harmonicSum = 0;
         
         activeMinerals.forEach(m => {
             const val = isEditable ? (params[`mineral_${m.id}`] || 0) : (streamState?.mineralFlows?.[m.id] || 0);
             const numVal = typeof val === 'string' ? parseFloat(val) : val;
             const safeVal = isNaN(numVal) ? 0 : numVal;
-            totalVal += safeVal;
-            weightedDensitySum += safeVal * (m.density || 2.7);
+            if (safeVal > 0) {
+                totalPct += safeVal;
+                // Use a safe density (fallback to 2.7 if missing or 0)
+                const density = (m.density && m.density > 0) ? m.density : 2.7;
+                harmonicSum += safeVal / density;
+            }
         });
 
-        const avgDensity = totalVal > 0 ? (weightedDensitySum / totalVal) : 0;
+        // Calculo da densidade mineral aparente (considerando restante como ganga a 2.7)
+        // Se a soma for < 100, o restante é assumido como quartzo/ganga (2.7 t/m³)
+        const remainingPct = Math.max(0, 100 - totalPct);
+        const finalHarmonicSum = harmonicSum + (remainingPct / 2.7);
+        const avgDensity = 100 / finalHarmonicSum;
         
         return {
-            total: totalVal.toFixed(2),
-            avgDensity: avgDensity.toFixed(2)
+            total: totalPct.toFixed(2),
+            avgDensity: avgDensity.toFixed(3)
         };
     }, [activeMinerals, params, streamState, isEditable]);
+
+    // Sync SG with calculated mineral density
+    useEffect(() => {
+        if (isEditable && activeMinerals.length > 0) {
+            const currentSg = parseFloat(params.sg || '0');
+            const targetSg = parseFloat(mineralTotals.avgDensity);
+            if (Math.abs(currentSg - targetSg) > 0.001) {
+                onChange('sg', mineralTotals.avgDensity);
+            }
+        }
+    }, [mineralTotals.avgDensity, isEditable, activeMinerals.length, params.sg, onChange]);
 
     const handleAddPsd = () => {
         if (!newPsdSize || !newPsdPassing) return;
@@ -118,11 +137,31 @@ export const StreamForm = ({
                     <div className="space-y-6">
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                             <InputGroup label="Vazão de Sólidos" value={isEditable ? params.solidsTph : (streamState?.solidsTph || 0)} onChange={(v) => onChange('solidsTph', v)} unit={units.massFlow} disabled={!isEditable} required={isEditable} />
-                            <InputGroup label="% Sólidos (p/p)" value={isEditable ? params.percentSolids : (streamState?.percentSolids || 0)} onChange={(v) => onChange('percentSolids', v)} unit="%" disabled={!isEditable} required={isEditable} />
-                            <InputGroup label="Densidade do fluido" value={isEditable ? params.sg : (streamState?.sgSolids || 0)} onChange={(v) => onChange('sg', v)} unit={units.solidDensity} disabled={!isEditable} required={isEditable} />
-                            {!isEditable && (
-                                <InputGroup label="Densidade do fluido" value={streamState?.slurryDensity || 0} onChange={() => {}} unit={units.solidDensity} disabled info="100 / [ (%S / ρ_s) + ((100 - %S) / ρ_w) ]" />
-                            )}
+                            <InputGroup label="% Sólidos (p/p)" value={isEditable ? params.percentSolids : (streamState?.percentSolids || 0)} onChange={(v) => onChange('percentSolids', v)} unit="%" disabled={!isEditable} />
+                            <div className="flex flex-col">
+                                <InputGroup 
+                                    label="Densidade Mineral" 
+                                    value={isEditable ? params.sg : (streamState?.sgSolids || 0)} 
+                                    onChange={(v) => onChange('sg', v)} 
+                                    unit={units.solidDensity} 
+                                    disabled={true} 
+                                    required={false} 
+                                    info="Densidade do sólido seco (ρ_s). Sincronizada automaticamente com a composição mineral." 
+                                />
+                                <p className="text-[10px] text-blue-400 font-medium -mt-3 mb-4 px-1">
+                                    o usuario nao pode editar esse numero
+                                </p>
+                            </div>
+                            
+                            <InputGroup 
+                                label="Densidade da Polpa" 
+                                value={isEditable ? params.slurryDensity : (streamState?.slurryDensity || 0)} 
+                                onChange={(v) => onChange('slurryDensity', v)} 
+                                unit={units.solidDensity} 
+                                disabled={!isEditable} 
+                                info="Relacionado a %S e ρ_s pela fórmula de balanço." 
+                            />
+                            
                             <InputGroup label="Vazão Volumétrica" value={isEditable ? params.volumetricFlow : (streamState ? streamState.totalTph / (streamState.slurryDensity || 1) : 0)} onChange={(v) => onChange('volumetricFlow', v)} unit={units.volumeFlow} disabled={!isEditable} />
                         </div>
 

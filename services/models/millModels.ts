@@ -103,13 +103,16 @@ export const solvePBM = (inputs: BallMillInputs, feedPsd: PSDVector, residenceTi
 /**
  * Converte frações retidas em curva cumulativa passando (%)
  */
-export const fractionsToCumulativePassing = (vector: PSDVector): PSDPoint[] => {
+export const fractionsToCumulativePassing = (vector: PSDVector | undefined): PSDPoint[] => {
+  if (!vector || !vector.sizes || !vector.massFractions) {
+    return [];
+  }
   let cumulative = 0;
   const points: PSDPoint[] = [];
   
   // Percorre do menor para o maior
   for (let i = vector.sizes.length - 1; i >= 0; i--) {
-    cumulative += vector.massFractions[i];
+    cumulative += vector.massFractions[i] || 0;
     points.push({
       size: vector.sizes[i],
       passing: Math.min(100, cumulative * 100)

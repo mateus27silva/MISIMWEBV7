@@ -5,6 +5,7 @@ import {
   Filter, Sliders, Search, Waves, ArrowRight, Droplets, Split
 } from 'lucide-react';
 import { STANDARD_MODELS } from '../services/miningMath';
+import { calculateStreamProperties } from '../services/models/sharedModels';
 import { 
   MillForm, SagMillForm, HPGRForm, GyratoryForm, JawCrusherForm, 
   CycloneForm, FlotationForm, MixerForm, StreamForm, DefaultForm 
@@ -154,19 +155,75 @@ export const ParametersView: React.FC<ParametersViewProps> = ({
         finalValue = value.replace(',', '.');
     }
     
+    // Cálculo de Balanço de Massa Automático para Correntes (C_w, SG, Rho_p)
+    let updatedParams = { ...activeItem.parameters, [key]: finalValue };
+    
+    if (activeItem.type === 'Stream' || activeItem.type === 'Feed') {
+      const solids = parseFloat(updatedParams.solidsTph || '0') || 0;
+      let pct = parseFloat(updatedParams.percentSolids || '0') || 0;
+      let sg = parseFloat(updatedParams.sg || updatedParams.oreDensity || '2.7') || 2.7;
+      let rho_p = parseFloat(updatedParams.slurryDensity || updatedParams.pulpDensity || '0') || 0;
+
+      // Recalcular SG (Densidade Mineral) a partir da composição se um mineral mudou
+      if (key.startsWith('mineral_')) {
+        let harmonicSum = 0;
+        let totalPct = 0;
+        minerals.forEach(m => {
+          const mPct = parseFloat(updatedParams[`mineral_${m.id}`] || '0') || 0;
+          if (mPct > 0) {
+            harmonicSum += mPct / (m.density || 2.7);
+            totalPct += mPct;
+          }
+        });
+
+        if (totalPct > 0 && harmonicSum > 0) {
+          // Assume que o restante da massa (até 100%) tem densidade 2.7 (ganga padrão)
+          const remainingPct = Math.max(0, 100 - totalPct);
+          const finalSum = harmonicSum + (remainingPct / 2.7);
+          sg = 100 / finalSum;
+          updatedParams.sg = sg.toFixed(3);
+          if (updatedParams.oreDensity !== undefined) updatedParams.oreDensity = updatedParams.sg;
+        }
+      }
+      
+      if (key === 'percentSolids' && pct > 0 && sg > 1) {
+        // Recalcular Densidade de Polpa
+        rho_p = 100 / ((pct / sg) + (100 - pct));
+        updatedParams.slurryDensity = rho_p.toFixed(3);
+        if (updatedParams.pulpDensity !== undefined) updatedParams.pulpDensity = updatedParams.slurryDensity;
+      } else if (key === 'slurryDensity' && rho_p > 1 && sg > 1) {
+        // Recalcular % Sólidos
+        pct = (sg / rho_p) * ((rho_p - 1) / (sg - 1)) * 100;
+        updatedParams.percentSolids = pct.toFixed(2);
+      } else if (key === 'sg' && sg > 1) {
+        if (pct > 0 && (!rho_p || rho_p <= 1)) {
+            rho_p = 100 / ((pct / sg) + (100 - pct));
+            updatedParams.slurryDensity = rho_p.toFixed(3);
+            if (updatedParams.pulpDensity !== undefined) updatedParams.pulpDensity = updatedParams.slurryDensity;
+        } else if (rho_p > 1) {
+            pct = (sg / rho_p) * ((rho_p - 1) / (sg - 1)) * 100;
+            updatedParams.percentSolids = pct.toFixed(2);
+        }
+      }
+
+      // Re-fetch values after potential updates above for the volumetric flow calculation
+      const finalSolids = parseFloat(updatedParams.solidsTph || '0') || 0;
+      const finalPct = parseFloat(updatedParams.percentSolids || '0') || 0;
+      const finalDen = parseFloat(updatedParams.slurryDensity || '1.0') || 1.0;
+      
+      if (finalSolids >= 0 && finalPct > 0) {
+        const total = finalSolids / (finalPct / 100);
+        updatedParams.volumetricFlow = (total / finalDen).toFixed(2);
+      }
+    }
+    
     if (activeItem.itemType === 'node') {
         onUpdateNode(activeItem.id, {
-            parameters: {
-                ...activeItem.parameters,
-                [key]: finalValue
-            }
+            parameters: updatedParams
         });
     } else {
         onUpdateConnection(activeItem.id, {
-            parameters: {
-                ...activeItem.parameters,
-                [key]: finalValue
-            }
+            parameters: updatedParams
         });
     }
   };

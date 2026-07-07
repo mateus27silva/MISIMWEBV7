@@ -22,11 +22,13 @@ import {
   X,
   Coins,
   Database,
-  PlusSquare
+  PlusSquare,
+  Heart,
+  Star
 } from 'lucide-react';
 import { EquipmentType, UserProfile } from '../types';
 import { supabase } from '../services/supabaseClient';
-import { createCheckoutSession, syncCreditsAfterPayment } from '../services/stripeService';
+import { createCheckoutSession, syncCreditsAfterPayment, createFanClubSession } from '../services/stripeService';
 
 interface SettingsViewProps {
   user: {
@@ -78,6 +80,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onNavigate }) 
     }
     setLoadingPayment(true);
     await createCheckoutSession(user.id, packageId);
+    setLoadingPayment(false);
+  };
+
+  const handleFanClubDonation = async (amount: number) => {
+    setLoadingPayment(true);
+    await createFanClubSession(user.id, amount, user.email);
     setLoadingPayment(false);
   };
 
@@ -202,6 +210,50 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onNavigate }) 
                       </div>
                   </div>
               </div>
+           </div>
+
+           <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-8 flex flex-col md:flex-row gap-8 items-center">
+                 <div className="w-24 h-24 bg-rose-50 rounded-3xl flex items-center justify-center text-rose-500 shadow-inner">
+                     <Heart className="w-12 h-12 fill-current" />
+                 </div>
+                 <div className="flex-1 text-center md:text-left">
+                     <div className="inline-flex items-center space-x-2 px-3 py-1 bg-rose-50 text-rose-600 rounded-full text-[10px] font-black uppercase mb-3">
+                        <Star className="w-3 h-3" /> Exclusivo para Apoiadores
+                     </div>
+                     <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Participe do Fã-clube</h2>
+                     <p className="text-slate-500 text-sm mt-2 max-w-lg">
+                        Apoie o desenvolvimento do MISIMWEB com uma doação única e receba o selo de Apoiador em seu perfil, além de acesso antecipado a novas funcionalidades.
+                     </p>
+                 </div>
+                 <div className="w-full md:w-auto flex flex-col gap-3">
+                     <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                         {[10, 25, 50].map((val) => (
+                             <button 
+                               key={val}
+                               onClick={() => handleFanClubDonation(val)}
+                               disabled={loadingPayment}
+                               className="px-4 py-2 text-xs font-black text-slate-700 hover:bg-white hover:shadow-sm rounded-lg transition-all"
+                             >
+                               R$ {val}
+                             </button>
+                         ))}
+                     </div>
+                     <button 
+                       onClick={() => handleFanClubDonation(100)}
+                       className="w-full py-3 bg-slate-900 text-white font-black rounded-xl hover:bg-slate-800 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                     >
+                        Apoiar com R$ 100
+                     </button>
+                 </div>
+              </div>
+              
+              {profile?.is_fan_club_member && (
+                  <div className="bg-rose-50/50 p-4 border-t border-rose-100 flex items-center justify-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-rose-500" />
+                      <span className="text-[11px] font-black text-rose-700 uppercase">Você já é membro do Fã-clube! Obrigado pelo apoio.</span>
+                  </div>
+              )}
            </div>
 
            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
